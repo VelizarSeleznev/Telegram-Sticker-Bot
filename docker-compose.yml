@@ -1,0 +1,14 @@
+services:
+  sticker-bot:
+    build: .
+    container_name: telegram-sticker-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - bot_data:/data
+      - bot_temp:/tmp/sticker-bot
+
+volumes:
+  bot_data:
+  bot_temp:
