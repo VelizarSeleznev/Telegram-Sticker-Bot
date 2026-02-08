@@ -188,7 +188,7 @@ class MediaService:
             )
 
         return (
-            f"scale='if(gt(iw,ih),{size},-2)':'if(gt(ih,iw),{size},-2)':flags=lanczos,"
+            f"scale={size}:{size}:force_original_aspect_ratio=decrease:flags=lanczos,"
             f"pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
             f"fps={fps}"
         )
