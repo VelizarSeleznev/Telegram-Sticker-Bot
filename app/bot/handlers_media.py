@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from aiogram import F, Bot, Router
+from aiogram.enums import StickerType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
@@ -22,13 +23,16 @@ from app.services.pack_service import PackService
 router = Router(name="media")
 
 
-@router.message(F.photo | F.video | F.document | F.animation)
+@router.message(F.photo | F.video | F.document | F.animation | F.sticker)
 async def handle_media_upload(
     message: Message,
     bot: Bot,
     settings: Settings,
     db: Database,
     pack_service: PackService,
+    media_service: MediaService,
+    emoji_service: EmojiService,
+    media_semaphore: asyncio.Semaphore,
 ) -> None:
     if not await ensure_allowed_event(message, settings):
         return
@@ -37,6 +41,14 @@ async def handle_media_upload(
     if not active_pack:
         await message.answer("Сначала создайте и активируйте пак через /newpack")
         return
+
+    if message.sticker:
+        if message.sticker.is_animated:
+            await message.answer("Анимированные .tgs стикеры пока не поддерживаются. Отправьте обычный или video-стикер.")
+            return
+        if message.sticker.type != StickerType.REGULAR:
+            await message.answer("Поддерживаются только обычные стикеры из стикерпаков (regular).")
+            return
 
     incoming = extract_media_from_message(message)
     if incoming is None:
@@ -57,11 +69,58 @@ async def handle_media_upload(
             media_kind=incoming.media_kind,
             mime=incoming.mime,
             original_name=incoming.filename,
+            original_emoji=incoming.original_emoji,
             temp_path=str(input_path),
         )
     except Exception as exc:
         MediaService.cleanup_job_dir(job_dir)
         await message.answer(f"Не удалось скачать/сохранить медиа: {exc}")
+        return
+
+    if incoming.source_is_sticker:
+        await message.answer("Анализирую стикер и подбираю эмодзи...")
+        try:
+            async with media_semaphore:
+                processed = await asyncio.to_thread(
+                    media_service.process_existing_sticker,
+                    input_path,
+                    input_path.parent,
+                    incoming.media_kind,
+                )
+
+            suggestion = await asyncio.to_thread(
+                emoji_service.suggest,
+                processed.preview_path,
+                incoming.media_kind,
+                processed.path if incoming.media_kind == MediaKind.VIDEO else None,
+            )
+
+            await db.update_media_job_processing(
+                job_id=job.id,
+                crop_mode=CropMode.FIT,
+                processed_path=str(processed.path),
+                preview_path=str(processed.preview_path),
+                suggestions=suggestion.top3,
+            )
+
+            top = suggestion.top3
+            text = (
+                "Выберите эмодзи для добавляемого стикера:\n"
+                f"1) {top[0]}\n"
+                f"2) {top[1]}\n"
+                f"3) {top[2]}\n"
+                f"Авто: {suggestion.auto_pick} (confidence={suggestion.confidence:.2f})"
+            )
+            if incoming.original_emoji:
+                text += f"\nИсходный эмодзи: {incoming.original_emoji}"
+            await message.answer(
+                text,
+                reply_markup=emoji_keyboard(job.id, top, with_original=bool(incoming.original_emoji)),
+            )
+        except Exception as exc:
+            await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
+            MediaService.cleanup_job_dir(input_path.parent)
+            await message.answer(f"Ошибка обработки стикера: {exc}")
         return
 
     await message.answer(
@@ -137,7 +196,10 @@ async def cb_crop_choice(
         )
 
         if callback.message:
-            await callback.message.edit_text(text, reply_markup=emoji_keyboard(job.id, top))
+            await callback.message.edit_text(
+                text,
+                reply_markup=emoji_keyboard(job.id, top, with_original=bool(job.original_emoji)),
+            )
     except Exception as exc:
         await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
         MediaService.cleanup_job_dir(input_path.parent)
@@ -162,7 +224,7 @@ async def cb_emoji_choice(
 
     job_id = int(parts[1])
     choice = parts[2]
-    if choice not in {"auto", "0", "1", "2"}:
+    if choice not in {"auto", "0", "1", "2", "original"}:
         await callback.answer("Некорректный выбор", show_alert=True)
         return
 
@@ -187,7 +249,10 @@ async def cb_emoji_choice(
         except json.JSONDecodeError:
             pass
 
-    emoji = suggestions[0] if choice == "auto" else suggestions[int(choice)]
+    if choice == "original":
+        emoji = job.original_emoji or suggestions[0]
+    else:
+        emoji = suggestions[0] if choice == "auto" else suggestions[int(choice)]
 
     await callback.answer("Добавляю в стикерпак...")
     if callback.message:

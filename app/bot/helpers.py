@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.enums import StickerType
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Settings
@@ -18,6 +19,8 @@ class IncomingMedia:
     mime: str | None
     filename: str | None
     media_kind: MediaKind
+    source_is_sticker: bool = False
+    original_emoji: str | None = None
 
 
 async def ensure_allowed_event(event: Message | CallbackQuery, settings: Settings) -> bool:
@@ -42,6 +45,20 @@ async def ensure_allowed_event(event: Message | CallbackQuery, settings: Setting
 
 
 def extract_media_from_message(message: Message) -> IncomingMedia | None:
+    if message.sticker:
+        sticker = message.sticker
+        if sticker.type != StickerType.REGULAR or sticker.is_animated:
+            return None
+        return IncomingMedia(
+            file_id=sticker.file_id,
+            file_unique_id=sticker.file_unique_id,
+            mime="video/webm" if sticker.is_video else "image/webp",
+            filename="sticker.webm" if sticker.is_video else "sticker.webp",
+            media_kind=MediaKind.VIDEO if sticker.is_video else MediaKind.IMAGE,
+            source_is_sticker=True,
+            original_emoji=sticker.emoji,
+        )
+
     if message.photo:
         largest = message.photo[-1]
         return IncomingMedia(

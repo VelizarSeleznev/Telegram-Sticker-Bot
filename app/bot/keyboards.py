@@ -16,17 +16,18 @@ def crop_keyboard(job_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def emoji_keyboard(job_id: int, top3: list[str]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"{top3[0]}", callback_data=f"emoji:{job_id}:0"),
-                InlineKeyboardButton(text=f"{top3[1]}", callback_data=f"emoji:{job_id}:1"),
-                InlineKeyboardButton(text=f"{top3[2]}", callback_data=f"emoji:{job_id}:2"),
-            ],
-            [InlineKeyboardButton(text="Оставить авто", callback_data=f"emoji:{job_id}:auto")],
-        ]
-    )
+def emoji_keyboard(job_id: int, top3: list[str], with_original: bool = False) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(text=f"{top3[0]}", callback_data=f"emoji:{job_id}:0"),
+            InlineKeyboardButton(text=f"{top3[1]}", callback_data=f"emoji:{job_id}:1"),
+            InlineKeyboardButton(text=f"{top3[2]}", callback_data=f"emoji:{job_id}:2"),
+        ],
+        [InlineKeyboardButton(text="Оставить авто", callback_data=f"emoji:{job_id}:auto")],
+    ]
+    if with_original:
+        rows.append([InlineKeyboardButton(text="Оставить исходный эмодзи", callback_data=f"emoji:{job_id}:original")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def packs_keyboard(packs: list[Pack]) -> InlineKeyboardMarkup:

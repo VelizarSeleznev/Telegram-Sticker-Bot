@@ -40,9 +40,11 @@ async def test_media_job_transitions(tmp_path):
         media_kind=MediaKind.IMAGE,
         mime="image/png",
         original_name="x.png",
+        original_emoji="🙂",
         temp_path="/tmp/x.png",
     )
     assert job.status == JobStatus.PENDING
+    assert job.original_emoji == "🙂"
 
     await db.update_media_job_processing(
         job_id=job.id,

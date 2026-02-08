@@ -109,6 +109,40 @@ class MediaService:
 
         return ProcessedSticker(path=output_path, preview_path=preview_path, media_kind=MediaKind.VIDEO)
 
+    def process_existing_sticker(self, input_path: Path, job_dir: Path, media_kind: MediaKind) -> ProcessedSticker:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        if media_kind == MediaKind.IMAGE:
+            output_path = job_dir / "sticker.webp"
+            preview_path = job_dir / "preview.png"
+            with Image.open(input_path) as source:
+                image = source.convert("RGBA")
+                self._save_webp_with_limit(image, output_path)
+                image.save(preview_path, format="PNG", optimize=True)
+            return ProcessedSticker(path=output_path, preview_path=preview_path, media_kind=MediaKind.IMAGE)
+
+        self._require_ffmpeg()
+        output_path = job_dir / "sticker.webm"
+        preview_path = job_dir / "preview.png"
+
+        if input_path.suffix.lower() == ".webm" and input_path.stat().st_size <= VIDEO_STICKER_LIMIT_BYTES:
+            shutil.copy2(input_path, output_path)
+        else:
+            return self.process_video(input_path=input_path, job_dir=job_dir, mode=CropMode.FIT)
+
+        preview_cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            "0.5",
+            "-i",
+            str(output_path),
+            "-frames:v",
+            "1",
+            str(preview_path),
+        ]
+        self._run_ffmpeg(preview_cmd)
+        return ProcessedSticker(path=output_path, preview_path=preview_path, media_kind=MediaKind.VIDEO)
+
     @staticmethod
     def cleanup_job_dir(job_dir: Path) -> None:
         if job_dir.exists():

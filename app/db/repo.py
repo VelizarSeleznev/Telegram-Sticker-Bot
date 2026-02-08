@@ -40,12 +40,27 @@ class Database:
     async def initialize(self) -> None:
         if not self.conn:
             raise RuntimeError("DB is not connected")
+        await self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              name TEXT PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            )
+            """
+        )
         migrations_dir = Path(__file__).resolve().parent / "migrations"
         for path in sorted(migrations_dir.glob("*.sql")):
             if path.name.startswith("."):
                 continue
+            existing = await self._fetchone("SELECT 1 FROM schema_migrations WHERE name = ?", (path.name,))
+            if existing:
+                continue
             script = path.read_text(encoding="utf-8")
             await self.conn.executescript(script)
+            await self.conn.execute(
+                "INSERT INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+                (path.name, _now()),
+            )
         await self.conn.commit()
 
     async def ensure_user(self, tg_user_id: int) -> int:
@@ -156,6 +171,7 @@ class Database:
         mime: str | None,
         original_name: str | None,
         temp_path: str,
+        original_emoji: str | None = None,
     ) -> MediaJob:
         if not self.conn:
             raise RuntimeError("DB is not connected")
@@ -164,9 +180,9 @@ class Database:
             """
             INSERT INTO media_jobs(
               user_id, telegram_file_id, telegram_file_unique_id, media_kind,
-              mime, original_name, temp_path, status, created_at, updated_at
+              mime, original_name, original_emoji, temp_path, status, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -175,6 +191,7 @@ class Database:
                 media_kind.value,
                 mime,
                 original_name,
+                original_emoji,
                 temp_path,
                 JobStatus.PENDING.value,
                 now,
@@ -273,6 +290,7 @@ class Database:
         if row is None:
             return None
         crop_mode_value = row["crop_mode"]
+        row_keys = row.keys()
         return MediaJob(
             id=int(row["id"]),
             user_id=int(row["user_id"]),
@@ -281,6 +299,7 @@ class Database:
             media_kind=MediaKind(str(row["media_kind"])),
             mime=row["mime"],
             original_name=row["original_name"],
+            original_emoji=row["original_emoji"] if "original_emoji" in row_keys else None,
             temp_path=str(row["temp_path"]),
             crop_mode=CropMode(crop_mode_value) if crop_mode_value else None,
             processed_path=row["processed_path"],

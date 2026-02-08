@@ -57,6 +57,7 @@ class MediaJob:
     media_kind: MediaKind
     mime: str | None
     original_name: str | None
+    original_emoji: str | None
     temp_path: str
     crop_mode: CropMode | None
     processed_path: str | None
