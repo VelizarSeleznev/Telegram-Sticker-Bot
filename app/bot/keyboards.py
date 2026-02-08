@@ -42,3 +42,33 @@ def packs_keyboard(packs: list[Pack]) -> InlineKeyboardMarkup:
             )
         ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sticker_delete_keyboard(token: str, source_title: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"stact:{token}:delete_confirm"),
+                InlineKeyboardButton(text="Отмена", callback_data=f"stact:{token}:cancel"),
+            ]
+        ]
+    )
+
+
+def sticker_delete_or_import_keyboard(
+    *,
+    delete_token: str,
+    import_token: str | None,
+    source_title: str,
+    active_title: str | None,
+) -> InlineKeyboardMarkup:
+    row: list[InlineKeyboardButton] = [
+        InlineKeyboardButton(text=f"🗑️ Удалить из «{source_title}»", callback_data=f"stact:{delete_token}:delete_confirm")
+    ]
+    if import_token and active_title:
+        row.append(
+            InlineKeyboardButton(text=f"➕ Импортировать в «{active_title}»", callback_data=f"stact:{import_token}:import")
+        )
+    rows: list[list[InlineKeyboardButton]] = [row]
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"stact:{delete_token}:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

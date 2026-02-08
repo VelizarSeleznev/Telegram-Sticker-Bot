@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from aiogram import F, Bot, Router
@@ -19,6 +20,9 @@ from app.db.repo import Database
 from app.services.emoji_service import EmojiService
 from app.services.media_service import MediaService
 from app.services.pack_service import PackService
+from app.services.telegram_sticker_api import TelegramStickerApi
+from app.db.models import StickerActionKind
+from app.bot.keyboards import sticker_delete_keyboard, sticker_delete_or_import_keyboard
 
 router = Router(name="media")
 
@@ -33,15 +37,12 @@ async def handle_media_upload(
     media_service: MediaService,
     emoji_service: EmojiService,
     media_semaphore: asyncio.Semaphore,
+    tg_api: TelegramStickerApi,
 ) -> None:
     if not await ensure_allowed_event(message, settings):
         return
 
-    active_pack = await pack_service.get_active_pack(message.from_user.id, message.from_user.username)
-    if not active_pack:
-        await message.answer("Сначала создайте и активируйте пак через /newpack")
-        return
-
+    # Stickers can be deleted from our packs even if the user has no active pack.
     if message.sticker:
         if message.sticker.is_animated:
             await message.answer("Анимированные .tgs стикеры пока не поддерживаются. Отправьте обычный или video-стикер.")
@@ -49,6 +50,63 @@ async def handle_media_upload(
         if message.sticker.type != StickerType.REGULAR:
             await message.answer("Поддерживаются только обычные стикеры из стикерпаков (regular).")
             return
+
+        user_id = await db.ensure_user(message.from_user.id, message.from_user.username)
+        set_name = message.sticker.set_name
+        if set_name:
+            source_pack = await db.get_pack_by_tg_set_name_for_user(set_name, user_id)
+        else:
+            source_pack = None
+
+        if source_pack:
+            now = datetime.now(timezone.utc)
+            expires_at = (now + timedelta(minutes=10)).isoformat(timespec="seconds")
+            delete_token = await db.create_sticker_action(
+                user_id=user_id,
+                kind=StickerActionKind.DELETE,
+                sticker_file_id=message.sticker.file_id,
+                sticker_file_unique_id=message.sticker.file_unique_id,
+                sticker_set_name=set_name,
+                original_emoji=message.sticker.emoji,
+                expires_at=expires_at,
+            )
+
+            active_pack = await pack_service.get_active_pack(message.from_user.id, message.from_user.username)
+            import_token = None
+            if active_pack and active_pack.id != source_pack.id:
+                import_token = await db.create_sticker_action(
+                    user_id=user_id,
+                    kind=StickerActionKind.IMPORT,
+                    sticker_file_id=message.sticker.file_id,
+                    sticker_file_unique_id=message.sticker.file_unique_id,
+                    sticker_set_name=set_name,
+                    original_emoji=message.sticker.emoji,
+                    expires_at=expires_at,
+                )
+
+            if active_pack and active_pack.id != source_pack.id and import_token:
+                await message.answer(
+                    f"Стикер из вашего пака «{source_pack.title}». Что сделать?",
+                    reply_markup=sticker_delete_or_import_keyboard(
+                        delete_token=delete_token,
+                        import_token=import_token,
+                        source_title=source_pack.title,
+                        active_title=active_pack.title,
+                    ),
+                )
+            else:
+                await message.answer(
+                    f"Вы хотите удалить этот стикер из пака «{source_pack.title}»?",
+                    reply_markup=sticker_delete_keyboard(delete_token, source_pack.title),
+                )
+            return
+
+        # Not our pack (or no access) -> fall through to import flow below.
+
+    active_pack = await pack_service.get_active_pack(message.from_user.id, message.from_user.username)
+    if not active_pack:
+        await message.answer("Сначала создайте и активируйте пак через /newpack")
+        return
 
     incoming = extract_media_from_message(message)
     if incoming is None:
@@ -127,6 +185,164 @@ async def handle_media_upload(
         "Выберите режим обработки:",
         reply_markup=crop_keyboard(job.id),
     )
+
+
+@router.callback_query(F.data.startswith("stact:"))
+async def cb_sticker_action(
+    callback: CallbackQuery,
+    bot: Bot,
+    settings: Settings,
+    db: Database,
+    tg_api: TelegramStickerApi,
+    pack_service: PackService,
+    media_service: MediaService,
+    emoji_service: EmojiService,
+    media_semaphore: asyncio.Semaphore,
+) -> None:
+    if not await ensure_allowed_event(callback, settings):
+        return
+
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3:
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+
+    token = parts[1]
+    op = parts[2]
+    if op not in {"delete_confirm", "import", "cancel"}:
+        await callback.answer("Некорректная операция", show_alert=True)
+        return
+
+    user_id = await db.ensure_user(callback.from_user.id, callback.from_user.username)
+    action = await db.get_sticker_action(token, user_id)
+    if not action:
+        await callback.answer("Кнопка устарела. Пришлите стикер заново.", show_alert=True)
+        return
+
+    now = datetime.now(timezone.utc)
+    if action.expires_at <= now:
+        await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
+        await callback.answer("Кнопка устарела. Пришлите стикер заново.", show_alert=True)
+        return
+
+    if op == "cancel":
+        await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
+        await callback.answer("Отменено")
+        if callback.message:
+            await callback.message.edit_text("Отменено.")
+        return
+
+    if op == "delete_confirm":
+        if action.kind != StickerActionKind.DELETE:
+            await callback.answer("Кнопка устарела. Пришлите стикер заново.", show_alert=True)
+            return
+
+        pack_title = None
+        if action.sticker_set_name:
+            pack = await db.get_pack_by_tg_set_name_for_user(action.sticker_set_name, user_id)
+            if not pack:
+                await callback.answer("У вас больше нет доступа к этому паку.", show_alert=True)
+                return
+            pack_title = pack.title
+
+        await callback.answer("Удаляю...")
+        try:
+            await tg_api.delete_sticker(sticker_file_id=action.sticker_file_id)
+            await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
+            if callback.message:
+                if pack_title:
+                    await callback.message.edit_text(f"Удалено из пака «{pack_title}».")
+                else:
+                    await callback.message.edit_text("Удалено.")
+        except TelegramBadRequest as exc:
+            await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
+            hint = "Удаление возможно только из стикерпаков, созданных этим ботом."
+            if callback.message:
+                await callback.message.edit_text(f"Ошибка Telegram: {exc}\n{hint}")
+        except Exception as exc:  # noqa: BLE001
+            if callback.message:
+                await callback.message.edit_text(f"Ошибка удаления: {exc}")
+        return
+
+    # import
+    if action.kind != StickerActionKind.IMPORT:
+        await callback.answer("Кнопка устарела. Пришлите стикер заново.", show_alert=True)
+        return
+
+    active_pack = await pack_service.get_active_pack(callback.from_user.id, callback.from_user.username)
+    if not active_pack:
+        await callback.answer("Нет активного пака", show_alert=True)
+        if callback.message:
+            await callback.message.edit_text("Сначала создайте и активируйте пак через /newpack")
+        return
+
+    await callback.answer("Импортирую...")
+    job_dir = settings.temp_dir / str(callback.from_user.id) / str(uuid4())
+    try:
+        tg_file = await bot.get_file(action.sticker_file_id)
+        suffix = Path(tg_file.file_path or "sticker.bin").suffix or ".bin"
+        input_path = job_dir / f"sticker{suffix}"
+        await download_file(bot=bot, file_id=action.sticker_file_id, destination=input_path)
+
+        file_path_lc = (tg_file.file_path or "").lower()
+        media_kind = MediaKind.VIDEO if file_path_lc.endswith(".webm") else MediaKind.IMAGE
+
+        job = await db.create_media_job(
+            user_id=user_id,
+            telegram_file_id=action.sticker_file_id,
+            telegram_file_unique_id=action.sticker_file_unique_id,
+            media_kind=media_kind,
+            mime="video/webm" if media_kind == MediaKind.VIDEO else "image/webp",
+            original_name=input_path.name,
+            original_emoji=action.original_emoji,
+            temp_path=str(input_path),
+        )
+
+        async with media_semaphore:
+            processed = await asyncio.to_thread(
+                media_service.process_existing_sticker,
+                input_path,
+                input_path.parent,
+                media_kind,
+            )
+
+        suggestion = await asyncio.to_thread(
+            emoji_service.suggest,
+            processed.preview_path,
+            media_kind,
+            processed.path if media_kind == MediaKind.VIDEO else None,
+        )
+
+        await db.update_media_job_processing(
+            job_id=job.id,
+            crop_mode=CropMode.FIT,
+            processed_path=str(processed.path),
+            preview_path=str(processed.preview_path),
+            suggestions=suggestion.top3,
+        )
+
+        await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
+
+        top = suggestion.top3
+        text = (
+            "Выберите эмодзи для добавляемого стикера:\n"
+            f"1) {top[0]}\n"
+            f"2) {top[1]}\n"
+            f"3) {top[2]}\n"
+            f"Авто: {suggestion.auto_pick} (confidence={suggestion.confidence:.2f})"
+        )
+        if action.original_emoji:
+            text += f"\nИсходный эмодзи: {action.original_emoji}"
+
+        if callback.message:
+            await callback.message.edit_text(
+                text,
+                reply_markup=emoji_keyboard(job.id, top, with_original=bool(action.original_emoji)),
+            )
+    except Exception as exc:  # noqa: BLE001
+        MediaService.cleanup_job_dir(job_dir)
+        if callback.message:
+            await callback.message.edit_text(f"Ошибка импорта: {exc}")
 
 
 @router.callback_query(F.data.startswith("crop:"))

@@ -63,6 +63,7 @@ async def run() -> None:
             polling_timeout=settings.polling_timeout,
             settings=settings,
             db=db,
+            tg_api=tg_api,
             pack_service=pack_service,
             collab_service=collab_service,
             media_service=media_service,

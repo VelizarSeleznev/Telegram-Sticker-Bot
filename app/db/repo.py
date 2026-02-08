@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from app.db.models import (
     PackInvitation,
     PackMember,
     PackStatus,
+    StickerAction,
+    StickerActionKind,
 )
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{5,32}$")
@@ -180,6 +183,27 @@ class Database:
             (user_id, user_id),
         )
         return [self._row_to_pack(r) for r in rows]
+
+    async def get_pack_by_tg_set_name_for_user(self, tg_set_name: str, requester_user_id: int) -> Pack | None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        row = await self._fetchone(
+            """
+            SELECT
+              p.*,
+              pm.role AS member_role,
+              CASE WHEN uap.pack_id = p.id THEN 1 ELSE 0 END AS member_active
+            FROM packs p
+            INNER JOIN pack_members pm
+              ON pm.pack_id = p.id AND pm.user_id = ?
+            LEFT JOIN user_active_packs uap
+              ON uap.user_id = ?
+            WHERE p.tg_set_name = ?
+            LIMIT 1
+            """,
+            (requester_user_id, requester_user_id, tg_set_name),
+        )
+        return self._row_to_pack(row) if row else None
 
     async def get_pack_by_id(self, pack_id: int, requester_user_id: int | None = None) -> Pack | None:
         if not self.conn:
@@ -466,6 +490,79 @@ class Database:
         )
         await self.conn.commit()
 
+    async def expire_sticker_actions(self) -> None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        await self.conn.execute(
+            "DELETE FROM sticker_actions WHERE expires_at <= ?",
+            (_now(),),
+        )
+        await self.conn.commit()
+
+    async def create_sticker_action(
+        self,
+        *,
+        user_id: int,
+        kind: StickerActionKind,
+        sticker_file_id: str,
+        sticker_file_unique_id: str,
+        sticker_set_name: str | None,
+        original_emoji: str | None,
+        expires_at: str,
+    ) -> str:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        await self.expire_sticker_actions()
+        token = secrets.token_urlsafe(24)
+        await self.conn.execute(
+            """
+            INSERT INTO sticker_actions(
+              user_id, action_token, kind, sticker_file_id, sticker_file_unique_id,
+              sticker_set_name, original_emoji, expires_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                token,
+                kind.value,
+                sticker_file_id,
+                sticker_file_unique_id,
+                sticker_set_name,
+                original_emoji,
+                expires_at,
+            ),
+        )
+        await self.conn.commit()
+        return token
+
+    async def get_sticker_action(self, token: str, user_id: int) -> StickerAction | None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        row = await self._fetchone(
+            "SELECT * FROM sticker_actions WHERE action_token = ? AND user_id = ? LIMIT 1",
+            (token, user_id),
+        )
+        return self._row_to_sticker_action(row) if row else None
+
+    async def delete_sticker_action(self, token: str, user_id: int) -> None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        await self.conn.execute(
+            "DELETE FROM sticker_actions WHERE action_token = ? AND user_id = ?",
+            (token, user_id),
+        )
+        await self.conn.commit()
+
+    async def delete_sticker_actions_for_unique_id(self, user_id: int, sticker_file_unique_id: str) -> None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        await self.conn.execute(
+            "DELETE FROM sticker_actions WHERE user_id = ? AND sticker_file_unique_id = ?",
+            (user_id, sticker_file_unique_id),
+        )
+        await self.conn.commit()
+
     async def expire_pending_invitations(self) -> None:
         if not self.conn:
             raise RuntimeError("DB is not connected")
@@ -742,6 +839,20 @@ class Database:
             created_at=_parse_dt(str(row["created_at"])),
             updated_at=_parse_dt(str(row["updated_at"])),
             pack_title=row["pack_title"] if "pack_title" in row.keys() else None,
+        )
+
+    def _row_to_sticker_action(self, row: aiosqlite.Row) -> StickerAction:
+        return StickerAction(
+            id=int(row["id"]),
+            user_id=int(row["user_id"]),
+            action_token=str(row["action_token"]),
+            kind=StickerActionKind(str(row["kind"])),
+            sticker_file_id=str(row["sticker_file_id"]),
+            sticker_file_unique_id=str(row["sticker_file_unique_id"]),
+            sticker_set_name=row["sticker_set_name"],
+            original_emoji=row["original_emoji"],
+            created_at=_parse_dt(str(row["created_at"])),
+            expires_at=_parse_dt(str(row["expires_at"])),
         )
 
     async def _fetchone(self, query: str, params: tuple | list) -> aiosqlite.Row | None:

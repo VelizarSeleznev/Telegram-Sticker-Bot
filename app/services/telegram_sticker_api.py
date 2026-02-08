@@ -67,6 +67,12 @@ class TelegramStickerApi:
 
         await self._retry(_call)
 
+    async def delete_sticker(self, *, sticker_file_id: str) -> None:
+        async def _call() -> None:
+            await self.bot.delete_sticker_from_set(sticker=sticker_file_id)
+
+        await self._retry(_call)
+
     async def _retry(self, func) -> None:
         for attempt in range(1, self.max_retries + 1):
             try:

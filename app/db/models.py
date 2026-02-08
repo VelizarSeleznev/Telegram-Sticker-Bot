@@ -39,6 +39,10 @@ class InvitationStatus(StrEnum):
     REVOKED = "revoked"
     EXPIRED = "expired"
 
+class StickerActionKind(StrEnum):
+    DELETE = "delete"
+    IMPORT = "import"
+
 
 @dataclass(slots=True)
 class User:
@@ -120,3 +124,17 @@ class PackInvitation:
     created_at: datetime
     updated_at: datetime
     pack_title: str | None = None
+
+
+@dataclass(slots=True)
+class StickerAction:
+    id: int
+    user_id: int
+    action_token: str
+    kind: StickerActionKind
+    sticker_file_id: str
+    sticker_file_unique_id: str
+    sticker_set_name: str | None
+    original_emoji: str | None
+    created_at: datetime
+    expires_at: datetime
