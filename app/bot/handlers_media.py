@@ -37,7 +37,7 @@ async def handle_media_upload(
     if not await ensure_allowed_event(message, settings):
         return
 
-    active_pack = await pack_service.get_active_pack(message.from_user.id)
+    active_pack = await pack_service.get_active_pack(message.from_user.id, message.from_user.username)
     if not active_pack:
         await message.answer("Сначала создайте и активируйте пак через /newpack")
         return
@@ -55,7 +55,7 @@ async def handle_media_upload(
         await message.answer("Не удалось определить формат медиа. Отправьте изображение или видео.")
         return
 
-    user_id = await db.ensure_user(message.from_user.id)
+    user_id = await db.ensure_user(message.from_user.id, message.from_user.username)
     job_dir = settings.temp_dir / str(message.from_user.id) / str(uuid4())
     suffix = Path(incoming.filename or "file.bin").suffix or ".bin"
     input_path = job_dir / f"input{suffix}"
@@ -148,7 +148,7 @@ async def cb_crop_choice(
 
     job_id = int(parts[1])
     crop_mode = CropMode(parts[2])
-    user_id = await db.ensure_user(callback.from_user.id)
+    user_id = await db.ensure_user(callback.from_user.id, callback.from_user.username)
     job = await db.get_media_job(job_id=job_id, user_id=user_id)
     if not job:
         await callback.answer("Задача не найдена", show_alert=True)
@@ -228,7 +228,7 @@ async def cb_emoji_choice(
         await callback.answer("Некорректный выбор", show_alert=True)
         return
 
-    user_id = await db.ensure_user(callback.from_user.id)
+    user_id = await db.ensure_user(callback.from_user.id, callback.from_user.username)
     job = await db.get_media_job(job_id=job_id, user_id=user_id)
     if not job:
         await callback.answer("Задача не найдена", show_alert=True)
@@ -265,6 +265,7 @@ async def cb_emoji_choice(
             media_kind=job.media_kind,
             sticker_path=processed_path,
             emoji=emoji,
+            username=callback.from_user.username,
         )
 
         source_hash = _hash_file(processed_path)

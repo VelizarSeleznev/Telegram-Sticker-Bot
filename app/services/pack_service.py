@@ -12,11 +12,23 @@ from app.db.repo import Database
 from app.services.telegram_sticker_api import TelegramStickerApi
 
 
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{5,32}$")
+
+
 def _slugify(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", ascii_text).strip("_").lower()
     return slug or "stickerpack"
+
+
+def _username_lc(username: str | None) -> str | None:
+    if not username:
+        return None
+    raw = username.strip().lstrip("@").lower()
+    if not USERNAME_RE.fullmatch(raw):
+        return None
+    return raw
 
 
 def generate_short_name(title: str, tg_user_id: int, bot_username: str, salt: str) -> str:
@@ -38,21 +50,21 @@ class PackService:
         self.tg_api = tg_api
         self.bot_username = bot_username
 
-    async def create_draft_pack(self, tg_user_id: int, title: str) -> Pack:
-        user_id = await self.db.ensure_user(tg_user_id)
+    async def create_draft_pack(self, tg_user_id: int, title: str, username: str | None = None) -> Pack:
+        user_id = await self.db.ensure_user(tg_user_id, _username_lc(username))
         short_name = generate_short_name(title=title, tg_user_id=tg_user_id, bot_username=self.bot_username, salt="draft")
         return await self.db.create_draft_pack(user_id=user_id, title=title, short_name=short_name)
 
-    async def list_packs(self, tg_user_id: int) -> list[Pack]:
-        user_id = await self.db.ensure_user(tg_user_id)
-        return await self.db.list_packs(user_id=user_id)
+    async def list_packs(self, tg_user_id: int, username: str | None = None) -> list[Pack]:
+        user_id = await self.db.ensure_user(tg_user_id, _username_lc(username))
+        return await self.db.list_packs_for_user(user_id=user_id)
 
-    async def get_active_pack(self, tg_user_id: int) -> Pack | None:
-        user_id = await self.db.ensure_user(tg_user_id)
+    async def get_active_pack(self, tg_user_id: int, username: str | None = None) -> Pack | None:
+        user_id = await self.db.ensure_user(tg_user_id, _username_lc(username))
         return await self.db.get_active_pack(user_id=user_id)
 
-    async def activate_pack(self, tg_user_id: int, pack_id: int) -> bool:
-        user_id = await self.db.ensure_user(tg_user_id)
+    async def activate_pack(self, tg_user_id: int, pack_id: int, username: str | None = None) -> bool:
+        user_id = await self.db.ensure_user(tg_user_id, _username_lc(username))
         return await self.db.activate_pack(user_id=user_id, pack_id=pack_id)
 
     async def add_processed_sticker(
@@ -62,34 +74,39 @@ class PackService:
         media_kind: MediaKind,
         sticker_path: Path,
         emoji: str,
+        username: str | None = None,
     ) -> Pack:
-        user_id = await self.db.ensure_user(tg_user_id)
+        user_id = await self.db.ensure_user(tg_user_id, _username_lc(username))
         active = await self.db.get_active_pack(user_id=user_id)
         if not active:
             raise RuntimeError("У вас нет активного стикерпака. Создайте его через /newpack")
 
+        owner_tg_user_id = await self.db.get_pack_owner_tg_user_id(active.id)
+        if owner_tg_user_id is None:
+            raise RuntimeError("Не удалось определить владельца стикерпака")
+
         if active.status.value == "draft" or not active.tg_set_name:
             tg_set_name = await self._create_new_set_with_fallback_names(
-                tg_user_id=tg_user_id,
+                owner_tg_user_id=owner_tg_user_id,
                 pack=active,
                 media_kind=media_kind,
                 sticker_path=sticker_path,
                 emoji=emoji,
             )
             await self.db.set_pack_ready(pack_id=active.id, tg_set_name=tg_set_name)
-            pack = await self.db.get_pack_by_id(active.id)
+            pack = await self.db.get_pack_by_id(active.id, requester_user_id=user_id)
             if not pack:
                 raise RuntimeError("Pack not found after create")
             return pack
 
         await self.tg_api.add_sticker(
-            tg_user_id=tg_user_id,
+            tg_user_id=owner_tg_user_id,
             tg_set_name=active.tg_set_name,
             media_kind=media_kind,
             sticker_path=sticker_path,
             emoji=emoji,
         )
-        pack = await self.db.get_pack_by_id(active.id)
+        pack = await self.db.get_pack_by_id(active.id, requester_user_id=user_id)
         if not pack:
             raise RuntimeError("Pack not found after add")
         return pack
@@ -97,7 +114,7 @@ class PackService:
     async def _create_new_set_with_fallback_names(
         self,
         *,
-        tg_user_id: int,
+        owner_tg_user_id: int,
         pack: Pack,
         media_kind: MediaKind,
         sticker_path: Path,
@@ -106,7 +123,7 @@ class PackService:
         attempts = [pack.short_name] + [
             generate_short_name(
                 title=pack.title,
-                tg_user_id=tg_user_id,
+                tg_user_id=owner_tg_user_id,
                 bot_username=self.bot_username,
                 salt=f"retry-{idx}",
             )
@@ -117,7 +134,7 @@ class PackService:
         for candidate in attempts:
             try:
                 created_name = await self.tg_api.create_set(
-                    tg_user_id=tg_user_id,
+                    tg_user_id=owner_tg_user_id,
                     title=pack.title,
                     short_name=candidate,
                     media_kind=media_kind,

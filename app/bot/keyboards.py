@@ -34,9 +34,10 @@ def packs_keyboard(packs: list[Pack]) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for pack in packs:
         marker = "✅ " if pack.is_active else ""
+        role = "owner" if pack.role.value == "owner" else "editor"
         rows.append([
             InlineKeyboardButton(
-                text=f"{marker}{pack.id}: {pack.title}",
+                text=f"{marker}{pack.id}: {pack.title} ({role})",
                 callback_data=f"pack:{pack.id}:activate",
             )
         ])

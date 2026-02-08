@@ -28,10 +28,23 @@ class CropMode(StrEnum):
     FIT = "fit"
 
 
+class MemberRole(StrEnum):
+    OWNER = "owner"
+    EDITOR = "editor"
+
+
+class InvitationStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
 @dataclass(slots=True)
 class User:
     id: int
     tg_user_id: int
+    username_lc: str | None
     created_at: datetime
 
 
@@ -44,6 +57,7 @@ class Pack:
     tg_set_name: str | None
     status: PackStatus
     is_active: bool
+    role: MemberRole
     created_at: datetime
     updated_at: datetime
 
@@ -78,3 +92,31 @@ class StickerRecord:
     telegram_file_id: str | None
     source_hash: str
     created_at: datetime
+
+
+@dataclass(slots=True)
+class PackMember:
+    pack_id: int
+    user_id: int
+    role: MemberRole
+    invited_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    tg_user_id: int
+    username_lc: str | None
+
+
+@dataclass(slots=True)
+class PackInvitation:
+    id: int
+    pack_id: int
+    inviter_user_id: int
+    invited_username_lc: str
+    invited_user_id: int | None
+    token: str
+    status: InvitationStatus
+    expires_at: datetime
+    accepted_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    pack_title: str | None = None

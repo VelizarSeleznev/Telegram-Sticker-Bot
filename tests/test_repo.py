@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from app.db.models import CropMode, JobStatus, MediaKind
+from app.db.models import CropMode, JobStatus, MediaKind, MemberRole
 from app.db.repo import Database
 
 
@@ -62,5 +64,40 @@ async def test_media_job_transitions(tmp_path):
     saved = await db.get_media_job(job.id, user_id)
     assert saved is not None
     assert saved.status == JobStatus.DONE
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_shared_pack_activation_and_roles(tmp_path):
+    db = Database(tmp_path / "test.db")
+    await db.connect()
+    await db.initialize()
+
+    owner_id = await db.ensure_user(300)
+    editor_id = await db.ensure_user(301, "editor_user")
+    pack = await db.create_draft_pack(owner_id, "Shared", "shared_by_bot")
+
+    invitation = await db.create_invitation(
+        pack_id=pack.id,
+        inviter_user_id=owner_id,
+        invited_username_lc="editor_user",
+        invited_user_id=editor_id,
+        token="token_1",
+        expires_at=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(timespec="seconds"),
+    )
+    await db.accept_invitation(invitation.id, editor_id)
+
+    assert await db.activate_pack(editor_id, pack.id)
+    active = await db.get_active_pack(editor_id)
+    assert active is not None
+    assert active.id == pack.id
+    assert active.role == MemberRole.EDITOR
+
+    packs = await db.list_packs_for_user(editor_id)
+    assert len(packs) == 1
+    assert packs[0].id == pack.id
+    assert packs[0].is_active is True
+    assert packs[0].role == MemberRole.EDITOR
 
     await db.close()

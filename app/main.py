@@ -13,6 +13,7 @@ from app.bot.handlers_packs import router as packs_router
 from app.bot.handlers_start import router as start_router
 from app.config import Settings
 from app.db.repo import Database
+from app.services.collab_service import CollabService
 from app.services.emoji_service import EmojiService
 from app.services.media_service import MediaService
 from app.services.pack_service import PackService
@@ -44,6 +45,7 @@ async def run() -> None:
 
     tg_api = TelegramStickerApi(bot)
     pack_service = PackService(db=db, tg_api=tg_api, bot_username=me.username)
+    collab_service = CollabService(db=db, bot_username=me.username)
     media_service = MediaService(temp_dir=settings.temp_dir)
     emoji_service = EmojiService(catalog_path=settings.emoji_catalog_path)
     await asyncio.to_thread(emoji_service.initialize)
@@ -62,6 +64,7 @@ async def run() -> None:
             settings=settings,
             db=db,
             pack_service=pack_service,
+            collab_service=collab_service,
             media_service=media_service,
             emoji_service=emoji_service,
             media_semaphore=media_semaphore,
