@@ -8,7 +8,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.helpers import ensure_allowed_event
-from app.bot.keyboards import packs_keyboard
+from app.bot.keyboards import (
+    BTN_ACTIVE,
+    BTN_CANCEL,
+    BTN_HELP,
+    BTN_INVITE,
+    BTN_MEMBERS,
+    BTN_NEW_PACK,
+    BTN_PACKS,
+    cancel_keyboard,
+    main_menu_keyboard,
+    packs_keyboard,
+)
 from app.bot.states import PackStates
 from app.config import Settings
 from app.services.collab_service import CollabService
@@ -22,7 +33,7 @@ async def cmd_newpack(message: Message, state: FSMContext, settings: Settings) -
     if not await ensure_allowed_event(message, settings):
         return
     await state.set_state(PackStates.waiting_for_pack_title)
-    await message.answer("Введите название нового стикерпака.")
+    await message.answer("Введите название нового стикерпака.", reply_markup=cancel_keyboard())
 
 
 @router.message(PackStates.waiting_for_pack_title, F.text, ~F.text.startswith("/"))
@@ -35,8 +46,11 @@ async def receive_pack_title(
     if not await ensure_allowed_event(message, settings):
         return
     title = (message.text or "").strip()
+    if title in {BTN_NEW_PACK, BTN_PACKS, BTN_ACTIVE, BTN_INVITE, BTN_MEMBERS, BTN_HELP, BTN_CANCEL}:
+        await message.answer("Введите название пака текстом или нажмите «Отмена».", reply_markup=cancel_keyboard())
+        return
     if not title:
-        await message.answer("Название не может быть пустым. Попробуйте еще раз.")
+        await message.answer("Название не может быть пустым. Попробуйте еще раз.", reply_markup=cancel_keyboard())
         return
 
     pack = await pack_service.create_draft_pack(message.from_user.id, title, message.from_user.username)
@@ -45,7 +59,8 @@ async def receive_pack_title(
         f"Пак создан как черновик и активирован.\n"
         f"ID: {pack.id}\n"
         f"Название: {pack.title}\n"
-        "Теперь отправьте фото или видео для первого стикера."
+        "Теперь отправьте фото или видео для первого стикера.",
+        reply_markup=main_menu_keyboard(),
     )
 
 
@@ -55,7 +70,7 @@ async def cmd_packs(message: Message, settings: Settings, pack_service: PackServ
         return
     packs = await pack_service.list_packs(message.from_user.id, message.from_user.username)
     if not packs:
-        await message.answer("Паков пока нет. Создайте первый через /newpack")
+        await message.answer("Паков пока нет. Создайте первый через /newpack", reply_markup=main_menu_keyboard())
         return
     await message.answer("Ваши и совместные паки:", reply_markup=packs_keyboard(packs))
 
@@ -71,9 +86,9 @@ async def cmd_set_active(message: Message, settings: Settings, pack_service: Pac
     pack_id = int(parts[1])
     ok = await pack_service.activate_pack(message.from_user.id, pack_id, message.from_user.username)
     if not ok:
-        await message.answer("Пак не найден или у вас нет доступа.")
+        await message.answer("Пак не найден или у вас нет доступа.", reply_markup=main_menu_keyboard())
         return
-    await message.answer(f"Активный пак переключен на ID {pack_id}.")
+    await message.answer(f"Активный пак переключен на ID {pack_id}.", reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("invite"))
@@ -88,7 +103,7 @@ async def cmd_invite(
 
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) != 2 or not parts[1].strip().startswith("@"):
-        await message.answer("Формат: /invite @username")
+        await message.answer("Формат: /invite @username", reply_markup=main_menu_keyboard())
         return
 
     invited_username_raw = parts[1].strip()
@@ -99,7 +114,7 @@ async def cmd_invite(
             invited_username_raw=invited_username_raw,
         )
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось создать инвайт: {exc}")
+        await message.answer(f"Не удалось создать инвайт: {exc}", reply_markup=main_menu_keyboard())
         return
 
     inviter = f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id)
@@ -123,7 +138,8 @@ async def cmd_invite(
         f"Инвайт создан для {invitation.invited_username_lc}."
         f"\nСрок: 24 часа"
         f"\nСсылка: {invite_link}"
-        f"{dm_note}"
+        f"{dm_note}",
+        reply_markup=main_menu_keyboard(),
     )
 
 
@@ -138,7 +154,7 @@ async def cmd_members(message: Message, settings: Settings, collab_service: Coll
             requester_username=message.from_user.username,
         )
     except Exception as exc:  # noqa: BLE001
-        await message.answer(str(exc))
+        await message.answer(str(exc), reply_markup=main_menu_keyboard())
         return
 
     now = datetime.now(timezone.utc)
@@ -157,7 +173,7 @@ async def cmd_members(message: Message, settings: Settings, collab_service: Coll
             hours = max(0, int(remain.total_seconds() // 3600))
             lines.append(f"- @{inv.invited_username_lc}, истекает через ~{hours}ч")
 
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("kick"))
@@ -167,7 +183,7 @@ async def cmd_kick(message: Message, settings: Settings, collab_service: CollabS
 
     parts = (message.text or "").split()
     if len(parts) != 2 or not parts[1].isdigit():
-        await message.answer("Формат: /kick [member_id]")
+        await message.answer("Формат: /kick [member_id]", reply_markup=main_menu_keyboard())
         return
 
     target_member_id = int(parts[1])
@@ -178,11 +194,11 @@ async def cmd_kick(message: Message, settings: Settings, collab_service: CollabS
             target_member_id=target_member_id,
         )
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Не удалось удалить участника: {exc}")
+        await message.answer(f"Не удалось удалить участника: {exc}", reply_markup=main_menu_keyboard())
         return
 
     target_name = f"@{target.username_lc}" if target.username_lc else f"tg={target.tg_user_id}"
-    await message.answer(f"Участник {target_name} удален из пака «{pack.title}».")
+    await message.answer(f"Участник {target_name} удален из пака «{pack.title}».", reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data.startswith("pack:"))

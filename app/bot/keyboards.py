@@ -1,8 +1,36 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from app.db.models import Pack
+
+BTN_NEW_PACK = "➕ Новый пак"
+BTN_PACKS = "📦 Пакеты"
+BTN_ACTIVE = "✅ Активный"
+BTN_INVITE = "🤝 Пригласить"
+BTN_MEMBERS = "👥 Участники"
+BTN_HELP = "❓ Помощь"
+BTN_CANCEL = "✖️ Отмена"
+
+
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_NEW_PACK), KeyboardButton(text=BTN_PACKS)],
+            [KeyboardButton(text=BTN_ACTIVE), KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_INVITE), KeyboardButton(text=BTN_MEMBERS)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def cancel_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def crop_keyboard(job_id: int) -> InlineKeyboardMarkup:

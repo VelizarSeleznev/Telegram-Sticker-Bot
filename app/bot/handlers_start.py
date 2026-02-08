@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from app.bot.helpers import ensure_allowed_event
+from app.bot.keyboards import main_menu_keyboard
 from app.config import Settings
 from app.services.collab_service import CollabService
 from app.services.pack_service import PackService
@@ -62,7 +63,8 @@ async def cmd_start(
         "/members - участники активного пака\n"
         "/kick [member_id] - удалить участника (только owner)\n"
         "/help - помощь\n"
-        "Отправьте медиа, и я предложу обрезку и эмодзи."
+        "Отправьте медиа, и я предложу обрезку и эмодзи.",
+        reply_markup=main_menu_keyboard(),
     )
 
 
@@ -78,7 +80,8 @@ async def cmd_help(message: Message, settings: Settings) -> None:
         "- Квадрат: center crop + 512x512\n"
         "- Без обрезки: fit в 512x512\n\n"
         "Видео автоматически режется до 3 секунд и сжимается под лимит Telegram.\n"
-        "Можно приглашать редакторов в активный пак через /invite @username."
+        "Можно приглашать редакторов в активный пак через /invite @username.",
+        reply_markup=main_menu_keyboard(),
     )
 
 
@@ -87,4 +90,4 @@ async def cmd_cancel(message: Message, state: FSMContext, settings: Settings) ->
     if not await ensure_allowed_event(message, settings):
         return
     await state.clear()
-    await message.answer("Текущая операция отменена.")
+    await message.answer("Текущая операция отменена.", reply_markup=main_menu_keyboard())

@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers_media import router as media_router
+from app.bot.handlers_menu import router as menu_router
 from app.bot.handlers_packs import router as packs_router
 from app.bot.handlers_start import router as start_router
 from app.config import Settings
@@ -52,6 +53,7 @@ async def run() -> None:
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(start_router)
+    dp.include_router(menu_router)
     dp.include_router(packs_router)
     dp.include_router(media_router)
 
