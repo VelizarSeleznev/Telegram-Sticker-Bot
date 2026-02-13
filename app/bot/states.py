@@ -7,3 +7,7 @@ class PackStates(StatesGroup):
 
 class InviteStates(StatesGroup):
     waiting_for_invite_username = State()
+
+
+class EmojiStates(StatesGroup):
+    waiting_for_custom_emoji = State()

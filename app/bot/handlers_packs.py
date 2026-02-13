@@ -7,6 +7,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.bot.invite_notifications import format_actor, send_invitation_prompt
 from app.bot.helpers import ensure_allowed_event
 from app.bot.keyboards import (
     BTN_ACTIVE,
@@ -117,28 +118,28 @@ async def cmd_invite(
         await message.answer(f"Не удалось создать инвайт: {exc}", reply_markup=main_menu_keyboard())
         return
 
-    inviter = f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id)
+    inviter = format_actor(message.from_user.username, message.from_user.id)
     dm_sent = False
     if invited_tg_user_id is not None:
-        try:
-            await bot.send_message(
-                chat_id=invited_tg_user_id,
-                text=(
-                    f"Вас пригласили редактировать стикерпак «{pack.title}».\n"
-                    f"Пригласил: {inviter}\n"
-                    f"Ссылка для принятия: {invite_link}"
-                ),
-            )
-            dm_sent = True
-        except Exception:  # noqa: BLE001
-            dm_sent = False
+        dm_sent = await send_invitation_prompt(
+            bot=bot,
+            invited_tg_user_id=invited_tg_user_id,
+            pack_title=pack.title,
+            inviter_display=inviter,
+            invite_link=invite_link,
+            token=invitation.token,
+        )
 
-    dm_note = "\nИнвайт отправлен в личные сообщения." if dm_sent else "\nЛС недоступны — передайте ссылку вручную."
+    dm_note = (
+        "\nПриглашение отправлено в личные сообщения (с кнопками Принять/Отклонить)."
+        if dm_sent
+        else "\nЛС недоступны — передайте ссылку вручную."
+    )
     await message.answer(
         f"Инвайт создан для {invitation.invited_username_lc}."
         f"\nСрок: 24 часа"
         f"\nСсылка: {invite_link}"
-        f"{dm_note}",
+        f"{dm_note}\nЯ сообщу вам, когда пользователь примет или отклонит инвайт.",
         reply_markup=main_menu_keyboard(),
     )
 

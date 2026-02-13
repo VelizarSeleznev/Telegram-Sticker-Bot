@@ -101,3 +101,16 @@ async def test_shared_pack_activation_and_roles(tmp_path):
     assert packs[0].role == MemberRole.EDITOR
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_get_tg_user_id_by_user_id(tmp_path):
+    db = Database(tmp_path / "test.db")
+    await db.connect()
+    await db.initialize()
+
+    user_id = await db.ensure_user(123456)
+    assert await db.get_tg_user_id_by_user_id(user_id) == 123456
+    assert await db.get_tg_user_id_by_user_id(999999) is None
+
+    await db.close()

@@ -10,10 +10,12 @@ from uuid import uuid4
 from aiogram import F, Bot, Router
 from aiogram.enums import StickerType
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.helpers import download_file, ensure_allowed_event, extract_media_from_message
 from app.bot.keyboards import crop_keyboard, emoji_keyboard
+from app.bot.states import EmojiStates
 from app.config import Settings
 from app.db.models import CropMode, JobStatus, MediaKind
 from app.db.repo import Database
@@ -429,6 +431,7 @@ async def cb_emoji_choice(
     settings: Settings,
     db: Database,
     pack_service: PackService,
+    state: FSMContext,
 ) -> None:
     if not await ensure_allowed_event(callback, settings):
         return
@@ -440,7 +443,7 @@ async def cb_emoji_choice(
 
     job_id = int(parts[1])
     choice = parts[2]
-    if choice not in {"auto", "0", "1", "2", "original"}:
+    if choice not in {"auto", "0", "1", "2", "original", "custom"}:
         await callback.answer("Некорректный выбор", show_alert=True)
         return
 
@@ -465,53 +468,98 @@ async def cb_emoji_choice(
         except json.JSONDecodeError:
             pass
 
+    if choice == "custom":
+        await state.set_state(EmojiStates.waiting_for_custom_emoji)
+        await state.update_data(custom_emoji_job_id=job.id)
+        await callback.answer("Введите свой эмодзи")
+        if callback.message:
+            await callback.message.edit_text("Отправьте эмодзи одним сообщением. Например: 😎")
+        return
+
     if choice == "original":
         emoji = job.original_emoji or suggestions[0]
     else:
         emoji = suggestions[0] if choice == "auto" else suggestions[int(choice)]
 
-    await callback.answer("Добавляю в стикерпак...")
-    if callback.message:
-        await callback.message.edit_text("Отправляю стикер в Telegram...")
-
-    processed_path = Path(job.processed_path)
     try:
-        pack = await pack_service.add_processed_sticker(
+        await callback.answer("Добавляю в стикерпак...")
+        if callback.message:
+            await callback.message.edit_text("Отправляю стикер в Telegram...")
+        text = await _add_job_with_emoji(
+            db=db,
+            pack_service=pack_service,
             tg_user_id=callback.from_user.id,
-            media_kind=job.media_kind,
-            sticker_path=processed_path,
-            emoji=emoji,
             username=callback.from_user.username,
-        )
-
-        source_hash = _hash_file(processed_path)
-        await db.add_sticker_record(
-            pack_id=pack.id,
-            media_kind=job.media_kind,
+            job=job,
             emoji=emoji,
-            telegram_file_id=None,
-            source_hash=source_hash,
         )
-        await db.set_media_job_status(job.id, JobStatus.DONE)
-        MediaService.cleanup_job_dir(processed_path.parent)
-
-        link = f"https://t.me/addstickers/{pack.tg_set_name}" if pack.tg_set_name else ""
-        text = f"Стикер добавлен в пак «{pack.title}».\nЭмодзи: {emoji}"
-        if link:
-            text += f"\nПак: {link}"
         if callback.message:
             await callback.message.edit_text(text)
+        await state.clear()
     except TelegramBadRequest as exc:
         await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
-        MediaService.cleanup_job_dir(processed_path.parent)
+        MediaService.cleanup_job_dir(Path(job.processed_path).parent)
         hint = "Telegram отклонил формат для этого пака. Выберите другой пак через /packs или создайте новый /newpack."
         if callback.message:
             await callback.message.edit_text(f"Ошибка Telegram: {exc}\n{hint}")
     except Exception as exc:
         await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
-        MediaService.cleanup_job_dir(processed_path.parent)
+        MediaService.cleanup_job_dir(Path(job.processed_path).parent)
         if callback.message:
             await callback.message.edit_text(f"Ошибка добавления стикера: {exc}")
+
+
+@router.message(EmojiStates.waiting_for_custom_emoji, F.text, ~F.text.startswith("/"))
+async def receive_custom_emoji(
+    message: Message,
+    settings: Settings,
+    state: FSMContext,
+    db: Database,
+    pack_service: PackService,
+) -> None:
+    if not await ensure_allowed_event(message, settings):
+        return
+
+    data = await state.get_data()
+    job_id = data.get("custom_emoji_job_id")
+    if not isinstance(job_id, int):
+        await state.clear()
+        await message.answer("Сессия выбора эмодзи устарела. Отправьте медиа заново.")
+        return
+
+    user_id = await db.ensure_user(message.from_user.id, message.from_user.username)
+    job = await db.get_media_job(job_id=job_id, user_id=user_id)
+    if not job or not job.processed_path:
+        await state.clear()
+        await message.answer("Медиа не найдено. Отправьте медиа заново.")
+        return
+
+    custom_emoji = _normalize_custom_emoji(message.text)
+    if not custom_emoji:
+        await message.answer("Нужен один эмодзи без пробелов. Пример: 😎")
+        return
+
+    try:
+        await message.answer("Добавляю в стикерпак...")
+        text = await _add_job_with_emoji(
+            db=db,
+            pack_service=pack_service,
+            tg_user_id=message.from_user.id,
+            username=message.from_user.username,
+            job=job,
+            emoji=custom_emoji,
+        )
+        await state.clear()
+        await message.answer(text)
+    except TelegramBadRequest as exc:
+        await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
+        MediaService.cleanup_job_dir(Path(job.processed_path).parent)
+        hint = "Telegram отклонил эмодзи или формат. Попробуйте другой эмодзи или отправьте медиа заново."
+        await message.answer(f"Ошибка Telegram: {exc}\n{hint}")
+    except Exception as exc:  # noqa: BLE001
+        await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
+        MediaService.cleanup_job_dir(Path(job.processed_path).parent)
+        await message.answer(f"Ошибка добавления стикера: {exc}")
 
 
 def _hash_file(path: Path) -> str:
@@ -523,3 +571,50 @@ def _hash_file(path: Path) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def _normalize_custom_emoji(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.strip()
+    if not text or any(ch.isspace() for ch in text):
+        return None
+    if len(text) > 16:
+        return None
+    return text
+
+
+async def _add_job_with_emoji(
+    *,
+    db: Database,
+    pack_service: PackService,
+    tg_user_id: int,
+    username: str | None,
+    job,
+    emoji: str,
+) -> str:
+    processed_path = Path(job.processed_path)
+    pack = await pack_service.add_processed_sticker(
+        tg_user_id=tg_user_id,
+        media_kind=job.media_kind,
+        sticker_path=processed_path,
+        emoji=emoji,
+        username=username,
+    )
+
+    source_hash = _hash_file(processed_path)
+    await db.add_sticker_record(
+        pack_id=pack.id,
+        media_kind=job.media_kind,
+        emoji=emoji,
+        telegram_file_id=None,
+        source_hash=source_hash,
+    )
+    await db.set_media_job_status(job.id, JobStatus.DONE)
+    MediaService.cleanup_job_dir(processed_path.parent)
+
+    link = f"https://t.me/addstickers/{pack.tg_set_name}" if pack.tg_set_name else ""
+    text = f"Стикер добавлен в пак «{pack.title}».\nЭмодзи: {emoji}"
+    if link:
+        text += f"\nПак: {link}"
+    return text

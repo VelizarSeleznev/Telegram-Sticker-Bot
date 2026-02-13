@@ -123,6 +123,12 @@ class Database:
             (username_lc,),
         )
 
+    async def get_tg_user_id_by_user_id(self, user_id: int) -> int | None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        row = await self._fetchone("SELECT tg_user_id FROM users WHERE id = ? LIMIT 1", (user_id,))
+        return int(row["tg_user_id"]) if row else None
+
     async def create_draft_pack(self, user_id: int, title: str, short_name: str) -> Pack:
         if not self.conn:
             raise RuntimeError("DB is not connected")

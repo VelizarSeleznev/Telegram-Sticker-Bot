@@ -96,31 +96,11 @@ class CollabService:
         accepter_tg_user_id: int,
         accepter_username: str | None,
     ) -> Pack:
-        accepter_id = await self.touch_user(accepter_tg_user_id, accepter_username)
-        accepter_username_lc = self.normalize_username(accepter_username)
-        await self.db.expire_pending_invitations()
-
-        invitation = await self.db.get_invitation_by_token(token)
-        if not invitation:
-            raise RuntimeError("Инвайт не найден")
-
-        if invitation.status == InvitationStatus.ACCEPTED:
-            raise RuntimeError("Этот инвайт уже был принят")
-        if invitation.status == InvitationStatus.REVOKED:
-            raise RuntimeError("Этот инвайт отозван")
-        if invitation.status == InvitationStatus.EXPIRED:
-            raise RuntimeError("Срок действия инвайта истек")
-
-        if invitation.expires_at <= datetime.now(timezone.utc):
-            await self.db.expire_invitation(invitation.id)
-            raise RuntimeError("Срок действия инвайта истек")
-
-        if invitation.invited_user_id is not None:
-            if invitation.invited_user_id != accepter_id:
-                raise RuntimeError("Этот инвайт предназначен другому пользователю")
-        else:
-            if not accepter_username_lc or accepter_username_lc != invitation.invited_username_lc:
-                raise RuntimeError("Этот инвайт предназначен другому username")
+        accepter_id, invitation = await self._validate_invitation_recipient(
+            token=token,
+            tg_user_id=accepter_tg_user_id,
+            username=accepter_username,
+        )
 
         if not await self.db.is_pack_member(invitation.pack_id, accepter_id):
             editors_count = await self.db.count_editors(invitation.pack_id)
@@ -138,6 +118,59 @@ class CollabService:
         if not pack:
             raise RuntimeError("Не удалось получить пак после принятия инвайта")
         return pack
+
+    async def decline_invitation_by_token(
+        self,
+        *,
+        token: str,
+        decliner_tg_user_id: int,
+        decliner_username: str | None,
+    ) -> PackInvitation:
+        _, invitation = await self._validate_invitation_recipient(
+            token=token,
+            tg_user_id=decliner_tg_user_id,
+            username=decliner_username,
+        )
+        await self.db.revoke_invitation(invitation.id)
+        updated = await self.db.get_invitation_by_token(token)
+        if not updated:
+            raise RuntimeError("Инвайт не найден")
+        return updated
+
+    async def _validate_invitation_recipient(
+        self,
+        *,
+        token: str,
+        tg_user_id: int,
+        username: str | None,
+    ) -> tuple[int, PackInvitation]:
+        accepter_id = await self.touch_user(tg_user_id, username)
+        accepter_username_lc = self.normalize_username(username)
+        await self.db.expire_pending_invitations()
+
+        invitation = await self.db.get_invitation_by_token(token)
+        if not invitation:
+            raise RuntimeError("Инвайт не найден")
+
+        if invitation.status == InvitationStatus.ACCEPTED:
+            raise RuntimeError("Этот инвайт уже был принят")
+        if invitation.status == InvitationStatus.REVOKED:
+            raise RuntimeError("Этот инвайт уже недействителен")
+        if invitation.status == InvitationStatus.EXPIRED:
+            raise RuntimeError("Срок действия инвайта истек")
+
+        if invitation.expires_at <= datetime.now(timezone.utc):
+            await self.db.expire_invitation(invitation.id)
+            raise RuntimeError("Срок действия инвайта истек")
+
+        if invitation.invited_user_id is not None:
+            if invitation.invited_user_id != accepter_id:
+                raise RuntimeError("Этот инвайт предназначен другому пользователю")
+        else:
+            if not accepter_username_lc or accepter_username_lc != invitation.invited_username_lc:
+                raise RuntimeError("Этот инвайт предназначен другому username")
+
+        return accepter_id, invitation
 
     async def members_for_active_pack(
         self,

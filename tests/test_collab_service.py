@@ -131,3 +131,39 @@ async def test_expired_invitation_becomes_expired_status(tmp_path):
     assert saved_invitation.status == InvitationStatus.EXPIRED
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_decline_invitation_marks_it_revoked(tmp_path):
+    db = Database(tmp_path / "test.db")
+    await db.connect()
+    await db.initialize()
+
+    owner_tg = 5001
+    invited_tg = 5002
+    owner_id = await db.ensure_user(owner_tg, "owner_decline")
+    await db.ensure_user(invited_tg, "invited_decline")
+    await db.create_draft_pack(owner_id, "Shared", "shared_pack_decline_by_bot")
+
+    svc = CollabService(db=db, bot_username="mybot")
+    _, invitation, _, _ = await svc.create_invitation_for_active_pack(
+        requester_tg_user_id=owner_tg,
+        requester_username="owner_decline",
+        invited_username_raw="@invited_decline",
+    )
+
+    declined = await svc.decline_invitation_by_token(
+        token=invitation.token,
+        decliner_tg_user_id=invited_tg,
+        decliner_username="invited_decline",
+    )
+    assert declined.status == InvitationStatus.REVOKED
+
+    with pytest.raises(RuntimeError):
+        await svc.accept_invitation_by_token(
+            token=invitation.token,
+            accepter_tg_user_id=invited_tg,
+            accepter_username="invited_decline",
+        )
+
+    await db.close()

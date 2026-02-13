@@ -51,7 +51,10 @@ def emoji_keyboard(job_id: int, top3: list[str], with_original: bool = False) ->
             InlineKeyboardButton(text=f"{top3[1]}", callback_data=f"emoji:{job_id}:1"),
             InlineKeyboardButton(text=f"{top3[2]}", callback_data=f"emoji:{job_id}:2"),
         ],
-        [InlineKeyboardButton(text="Оставить авто", callback_data=f"emoji:{job_id}:auto")],
+        [
+            InlineKeyboardButton(text="Оставить авто", callback_data=f"emoji:{job_id}:auto"),
+            InlineKeyboardButton(text="Свой эмодзи", callback_data=f"emoji:{job_id}:custom"),
+        ],
     ]
     if with_original:
         rows.append([InlineKeyboardButton(text="Оставить исходный эмодзи", callback_data=f"emoji:{job_id}:original")])
@@ -100,3 +103,14 @@ def sticker_delete_or_import_keyboard(
     rows: list[list[InlineKeyboardButton]] = [row]
     rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"stact:{delete_token}:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def invite_decision_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Принять", callback_data=f"inv:{token}:accept"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"inv:{token}:decline"),
+            ]
+        ]
+    )
