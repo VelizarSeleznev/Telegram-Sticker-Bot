@@ -19,7 +19,8 @@ rsync -a --delete \
 
 cd "$runtime_dir"
 
-docker compose up -d --build sticker-bot
+timeout 10m docker compose build --progress=plain sticker-bot
+docker compose up -d --no-build sticker-bot
 docker compose ps
 
 docker compose exec -T sticker-bot python - <<'PY'
