@@ -6,7 +6,9 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import User
 
 from app.bot.handlers_media import router as media_router
 from app.bot.handlers_menu import router as menu_router
@@ -28,6 +30,31 @@ def setup_logging(level: str) -> None:
     )
 
 
+async def _get_me_with_retry(bot: Bot, attempts: int = 5) -> User:
+    delay = 2
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return await bot.get_me()
+        except TelegramNetworkError as exc:
+            last_error = exc
+            if attempt >= attempts:
+                break
+            logging.getLogger(__name__).warning(
+                "Telegram API unavailable during startup, retrying in %s seconds (%s/%s): %s",
+                delay,
+                attempt,
+                attempts,
+                exc,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+
+    assert last_error is not None
+    raise last_error
+
+
 async def run() -> None:
     settings = Settings.from_env()
     setup_logging(settings.log_level)
@@ -40,7 +67,7 @@ async def run() -> None:
 
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
-    me = await bot.get_me()
+    me = await _get_me_with_retry(bot)
     if not me.username:
         raise RuntimeError("Bot username is required for sticker set naming")
 

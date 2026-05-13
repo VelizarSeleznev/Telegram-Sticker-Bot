@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.bot.helpers import ensure_allowed_event
+from app.bot.help_text import build_help_text
 from app.bot.invite_notifications import format_actor, notify_inviter_about_decision
 from app.bot.keyboards import main_menu_keyboard
 from app.config import Settings
@@ -66,6 +67,11 @@ async def cmd_start(
     intro = "Привет. Я помогу делать стикерпаки (фото и видео)."
     if deep_link_result:
         intro = f"{intro}\n{deep_link_result}"
+    intro = (
+        f"{intro}\n"
+        "Если что-то не так, пишите @ve_lizard или делайте pull request в репозиторий: "
+        "https://github.com/VelizarSeleznev/Telegram-Sticker-Bot"
+    )
 
     await message.answer(
         f"{intro}\n"
@@ -87,17 +93,7 @@ async def cmd_start(
 async def cmd_help(message: Message, settings: Settings) -> None:
     if not await ensure_allowed_event(message, settings):
         return
-    await message.answer(
-        "Поддержка форматов (best-effort):\n"
-        "Изображения: jpg/jpeg/png/webp/heic\n"
-        "Видео: mp4/mov/webm/gif\n\n"
-        "Режимы:\n"
-        "- Квадрат: center crop + 512x512\n"
-        "- Без обрезки: fit в 512x512\n\n"
-        "Видео автоматически режется до 3 секунд и сжимается под лимит Telegram.\n"
-        "Можно приглашать редакторов в активный пак через /invite @username.",
-        reply_markup=main_menu_keyboard(),
-    )
+    await message.answer(build_help_text(), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("cancel"))

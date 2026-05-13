@@ -29,6 +29,9 @@
 - `/help`
 - `/cancel`
 
+## Support
+- If something is off, contact `@ve_lizard` or open a pull request in the repository: https://github.com/VelizarSeleznev/Telegram-Sticker-Bot
+
 ## Быстрый запуск (Docker Compose)
 1. Скопируйте `.env.example` в `.env` и заполните значения.
 2. Запустите:
@@ -67,6 +70,14 @@ python -m app.main
 В Docker Compose:
 - состояние хранится в volume `bot_data` (`/data/bot.db`),
 - для переноса на другой сервер достаточно перенести проект + `.env` + backup volume.
+
+## Деплой на `seggver`
+- GitHub Actions workflow `.github/workflows/deploy-seggver.yml` запускается на self-hosted runner `seggver-sticker-bot`.
+- Runtime-путь на сервере: `/home/egg/telegram-sticker-bot`.
+- Deploy script: `scripts/deploy_seggver.sh`; он синхронизирует checkout в runtime-путь, сохраняет серверный `.env`, пересобирает `docker compose` и проверяет help-текст внутри контейнера.
+
+## Надежность старта
+- На старте бот проверяет `getMe()` с повтором при transient `TelegramNetworkError`, чтобы краткие DNS/Telegram-сбои не валили контейнер.
 
 ## Замечания
 - MVP работает только в личных чатах.
