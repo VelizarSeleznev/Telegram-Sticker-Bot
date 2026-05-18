@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from app.db.models import Pack
+from app.db.models import CropMode, Pack
 
 BTN_NEW_PACK = "➕ Новый пак"
 BTN_PACKS = "📦 Пакеты"
@@ -44,7 +44,12 @@ def crop_keyboard(job_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def emoji_keyboard(job_id: int, top3: list[str], with_original: bool = False) -> InlineKeyboardMarkup:
+def emoji_keyboard(
+    job_id: int,
+    top3: list[str],
+    with_original: bool = False,
+    crop_mode: CropMode | None = None,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(text=f"{top3[0]}", callback_data=f"emoji:{job_id}:0"),
@@ -58,6 +63,10 @@ def emoji_keyboard(job_id: int, top3: list[str], with_original: bool = False) ->
     ]
     if with_original:
         rows.append([InlineKeyboardButton(text="Оставить исходный эмодзи", callback_data=f"emoji:{job_id}:original")])
+    if crop_mode == CropMode.FIT:
+        rows.append([InlineKeyboardButton(text="Обрезать до квадрата", callback_data=f"crop:{job_id}:square")])
+    elif crop_mode == CropMode.SQUARE:
+        rows.append([InlineKeyboardButton(text="Вернуть без обрезки", callback_data=f"crop:{job_id}:fit")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

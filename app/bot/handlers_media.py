@@ -3,28 +3,26 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from aiogram import F, Bot, Router
 from aiogram.enums import StickerType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.bot.helpers import download_file, ensure_allowed_event, extract_media_from_message
-from app.bot.keyboards import crop_keyboard, emoji_keyboard
+from app.bot.keyboards import emoji_keyboard, sticker_delete_keyboard, sticker_delete_or_import_keyboard
 from app.bot.states import EmojiStates
 from app.config import Settings
-from app.db.models import CropMode, JobStatus, MediaKind
+from app.db.models import CropMode, JobStatus, MediaKind, StickerActionKind
 from app.db.repo import Database
 from app.services.emoji_service import EmojiService
 from app.services.media_service import MediaService
 from app.services.pack_service import PackService
 from app.services.telegram_sticker_api import TelegramStickerApi
-from app.db.models import StickerActionKind
-from app.bot.keyboards import sticker_delete_keyboard, sticker_delete_or_import_keyboard
 
 router = Router(name="media")
 
@@ -40,6 +38,7 @@ async def handle_media_upload(
     emoji_service: EmojiService,
     media_semaphore: asyncio.Semaphore,
     tg_api: TelegramStickerApi,
+    state: FSMContext,
 ) -> None:
     if not await ensure_allowed_event(message, settings):
         return
@@ -164,15 +163,15 @@ async def handle_media_upload(
             )
 
             top = suggestion.top3
-            text = (
-                "Выберите эмодзи для добавляемого стикера:\n"
-                f"1) {top[0]}\n"
-                f"2) {top[1]}\n"
-                f"3) {top[2]}\n"
-                f"Авто: {suggestion.auto_pick} (confidence={suggestion.confidence:.2f})"
+            text = _emoji_choice_text(
+                title="Выберите эмодзи для добавляемого стикера:",
+                top=top,
+                auto_pick=suggestion.auto_pick,
+                confidence=suggestion.confidence,
             )
             if incoming.original_emoji:
                 text += f"\nИсходный эмодзи: {incoming.original_emoji}"
+            await _set_direct_emoji_state(state, job.id)
             await message.answer(
                 text,
                 reply_markup=emoji_keyboard(job.id, top, with_original=bool(incoming.original_emoji)),
@@ -183,10 +182,54 @@ async def handle_media_upload(
             await message.answer(f"Ошибка обработки стикера: {exc}")
         return
 
-    await message.answer(
-        "Выберите режим обработки:",
-        reply_markup=crop_keyboard(job.id),
-    )
+    await message.answer("Конвертирую медиа без обрезки, это может занять до 20 секунд...")
+    try:
+        async with media_semaphore:
+            if incoming.media_kind == MediaKind.IMAGE:
+                processed = await asyncio.to_thread(
+                    media_service.process_image,
+                    input_path,
+                    input_path.parent,
+                    CropMode.FIT,
+                )
+            else:
+                processed = await asyncio.to_thread(
+                    media_service.process_video,
+                    input_path,
+                    input_path.parent,
+                    CropMode.FIT,
+                )
+
+        suggestion = await asyncio.to_thread(
+            emoji_service.suggest,
+            processed.preview_path,
+            incoming.media_kind,
+            processed.path if incoming.media_kind == MediaKind.VIDEO else None,
+        )
+
+        await db.update_media_job_processing(
+            job_id=job.id,
+            crop_mode=CropMode.FIT,
+            processed_path=str(processed.path),
+            preview_path=str(processed.preview_path),
+            suggestions=suggestion.top3,
+        )
+
+        top = suggestion.top3
+        await _set_direct_emoji_state(state, job.id)
+        await message.answer(
+            _emoji_choice_text(
+                title="Готово. Выберите эмодзи для стикера:",
+                top=top,
+                auto_pick=suggestion.auto_pick,
+                confidence=suggestion.confidence,
+            ),
+            reply_markup=emoji_keyboard(job.id, top, with_original=bool(job.original_emoji), crop_mode=CropMode.FIT),
+        )
+    except Exception as exc:
+        await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
+        MediaService.cleanup_job_dir(input_path.parent)
+        await message.answer(f"Ошибка обработки: {exc}")
 
 
 @router.callback_query(F.data.startswith("stact:"))
@@ -200,6 +243,7 @@ async def cb_sticker_action(
     media_service: MediaService,
     emoji_service: EmojiService,
     media_semaphore: asyncio.Semaphore,
+    state: FSMContext,
 ) -> None:
     if not await ensure_allowed_event(callback, settings):
         return
@@ -326,17 +370,17 @@ async def cb_sticker_action(
         await db.delete_sticker_actions_for_unique_id(user_id, action.sticker_file_unique_id)
 
         top = suggestion.top3
-        text = (
-            "Выберите эмодзи для добавляемого стикера:\n"
-            f"1) {top[0]}\n"
-            f"2) {top[1]}\n"
-            f"3) {top[2]}\n"
-            f"Авто: {suggestion.auto_pick} (confidence={suggestion.confidence:.2f})"
+        text = _emoji_choice_text(
+            title="Выберите эмодзи для добавляемого стикера:",
+            top=top,
+            auto_pick=suggestion.auto_pick,
+            confidence=suggestion.confidence,
         )
         if action.original_emoji:
             text += f"\nИсходный эмодзи: {action.original_emoji}"
 
         if callback.message:
+            await _set_direct_emoji_state(state, job.id)
             await callback.message.edit_text(
                 text,
                 reply_markup=emoji_keyboard(job.id, top, with_original=bool(action.original_emoji)),
@@ -355,6 +399,7 @@ async def cb_crop_choice(
     media_service: MediaService,
     emoji_service: EmojiService,
     media_semaphore: asyncio.Semaphore,
+    state: FSMContext,
 ) -> None:
     if not await ensure_allowed_event(callback, settings):
         return
@@ -405,18 +450,18 @@ async def cb_crop_choice(
         )
 
         top = suggestion.top3
-        text = (
-            "Готово. Выберите эмодзи для стикера:\n"
-            f"1) {top[0]}\n"
-            f"2) {top[1]}\n"
-            f"3) {top[2]}\n"
-            f"Авто: {suggestion.auto_pick} (confidence={suggestion.confidence:.2f})"
+        text = _emoji_choice_text(
+            title="Готово. Выберите эмодзи для стикера:",
+            top=top,
+            auto_pick=suggestion.auto_pick,
+            confidence=suggestion.confidence,
         )
 
         if callback.message:
+            await _set_direct_emoji_state(state, job.id)
             await callback.message.edit_text(
                 text,
-                reply_markup=emoji_keyboard(job.id, top, with_original=bool(job.original_emoji)),
+                reply_markup=emoji_keyboard(job.id, top, with_original=bool(job.original_emoji), crop_mode=crop_mode),
             )
     except Exception as exc:
         await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
@@ -488,6 +533,7 @@ async def cb_emoji_choice(
         text = await _add_job_with_emoji(
             db=db,
             pack_service=pack_service,
+            reply_message=callback.message,
             tg_user_id=callback.from_user.id,
             username=callback.from_user.username,
             job=job,
@@ -544,6 +590,7 @@ async def receive_custom_emoji(
         text = await _add_job_with_emoji(
             db=db,
             pack_service=pack_service,
+            reply_message=message,
             tg_user_id=message.from_user.id,
             username=message.from_user.username,
             job=job,
@@ -560,6 +607,22 @@ async def receive_custom_emoji(
         await db.set_media_job_status(job.id, JobStatus.ERROR, str(exc))
         MediaService.cleanup_job_dir(Path(job.processed_path).parent)
         await message.answer(f"Ошибка добавления стикера: {exc}")
+
+
+async def _set_direct_emoji_state(state: FSMContext, job_id: int) -> None:
+    await state.set_state(EmojiStates.waiting_for_custom_emoji)
+    await state.update_data(custom_emoji_job_id=job_id)
+
+
+def _emoji_choice_text(*, title: str, top: list[str], auto_pick: str, confidence: float) -> str:
+    return (
+        f"{title}\n"
+        f"1) {top[0]}\n"
+        f"2) {top[1]}\n"
+        f"3) {top[2]}\n"
+        f"Авто: {auto_pick} (confidence={confidence:.2f})\n\n"
+        "Можно просто отправить нужный эмодзи сообщением."
+    )
 
 
 def _hash_file(path: Path) -> str:
@@ -588,6 +651,7 @@ async def _add_job_with_emoji(
     *,
     db: Database,
     pack_service: PackService,
+    reply_message: Message | None,
     tg_user_id: int,
     username: str | None,
     job,
@@ -611,10 +675,23 @@ async def _add_job_with_emoji(
         source_hash=source_hash,
     )
     await db.set_media_job_status(job.id, JobStatus.DONE)
+    preview_sent = await _send_added_sticker_preview(reply_message, processed_path)
     MediaService.cleanup_job_dir(processed_path.parent)
 
     link = f"https://t.me/addstickers/{pack.tg_set_name}" if pack.tg_set_name else ""
     text = f"Стикер добавлен в пак «{pack.title}».\nЭмодзи: {emoji}"
     if link:
         text += f"\nПак: {link}"
+    if not preview_sent:
+        text += "\nПревью не удалось отправить, но стикер уже добавлен в пак."
     return text
+
+
+async def _send_added_sticker_preview(message: Message | None, sticker_path: Path) -> bool:
+    if message is None:
+        return False
+    try:
+        await message.answer_sticker(sticker=FSInputFile(sticker_path))
+        return True
+    except TelegramBadRequest:
+        return False
