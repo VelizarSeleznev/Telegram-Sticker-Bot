@@ -14,11 +14,11 @@ def test_build_search_url_uses_klipy_endpoint_and_inline_defaults():
     assert "client_key=otter_sticker_bot" in url
     assert "locale=ru_RU" in url
     assert "contentfilter=medium" in url
-    assert "media_filter=tinygif%2Cnanogif%2Cgif" in url
+    assert "media_filter=tinymp4%2Cmp4%2Cnanomp4%2Cnanogif%2Ctinygif%2Cgif" in url
     assert "pos=next" in url
 
 
-def test_to_inline_gif_prefers_tinygif_and_nanogif():
+def test_to_inline_gif_prefers_tinymp4_and_nanogif():
     service = KlipyService(api_key="key")
 
     result = service._to_inline_gif(
@@ -26,10 +26,14 @@ def test_to_inline_gif_prefers_tinygif_and_nanogif():
             "id": "123",
             "content_description": "thinking otter",
             "media_formats": {
+                "tinymp4": {
+                    "url": "https://media.klipy.com/tiny.mp4",
+                    "dims": [220, 160],
+                    "duration": 2.6,
+                },
                 "tinygif": {
                     "url": "https://media.klipy.com/tiny.gif",
                     "dims": [220, 160],
-                    "duration": 2.6,
                 },
                 "nanogif": {
                     "url": "https://media.klipy.com/nano.gif",
@@ -41,12 +45,12 @@ def test_to_inline_gif_prefers_tinygif_and_nanogif():
 
     assert result is not None
     assert result.id == "klipy-123"
-    assert result.gif_url == "https://media.klipy.com/tiny.gif"
+    assert result.mpeg4_url == "https://media.klipy.com/tiny.mp4"
     assert result.thumbnail_url == "https://media.klipy.com/nano.gif"
-    assert result.gif_width == 220
-    assert result.gif_height == 160
-    assert result.gif_duration == 3
-    assert result.title == "thinking otter"
+    assert result.mpeg4_width == 220
+    assert result.mpeg4_height == 160
+    assert result.mpeg4_duration == 3
+    assert result.title is None
 
 
 def test_to_inline_gif_skips_results_without_media():
@@ -65,3 +69,37 @@ async def test_search_inline_gifs_skips_empty_queries():
 
     assert result.results == []
     assert result.next_offset == ""
+
+
+@pytest.mark.asyncio
+async def test_search_inline_gifs_deduplicates_klipy_result_ids(monkeypatch):
+    service = KlipyService(api_key="key")
+
+    async def fake_fetch_json(url):
+        return {
+            "next": "next-page",
+            "results": [
+                {
+                    "id": "same",
+                    "media_formats": {
+                        "tinymp4": {"url": "https://media.klipy.com/1.mp4"},
+                        "nanogif": {"url": "https://media.klipy.com/1.gif"},
+                    },
+                },
+                {
+                    "id": "same",
+                    "media_formats": {
+                        "tinymp4": {"url": "https://media.klipy.com/2.mp4"},
+                        "nanogif": {"url": "https://media.klipy.com/2.gif"},
+                    },
+                },
+            ],
+        }
+
+    monkeypatch.setattr("app.services.klipy_service._fetch_json", fake_fetch_json)
+
+    result = await service.search_inline_gifs("cat")
+
+    assert result.next_offset == "next-page"
+    assert len(result.results) == 1
+    assert result.results[0].id == "klipy-same"

@@ -8,16 +8,16 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from aiogram.types import InlineQueryResultGif
+from aiogram.types import InlineQueryResultMpeg4Gif
 
 
 KLIPY_SEARCH_URL = "https://api.klipy.com/v2/search"
-DEFAULT_LIMIT = 20
+DEFAULT_LIMIT = 12
 
 
 @dataclass(slots=True)
 class KlipySearchResult:
-    results: list[InlineQueryResultGif]
+    results: list[InlineQueryResultMpeg4Gif]
     next_offset: str
 
 
@@ -41,9 +41,11 @@ class KlipyService:
             raw_results = []
 
         results = []
+        seen_ids: set[str] = set()
         for raw_result in raw_results:
             result = self._to_inline_gif(raw_result)
-            if result is not None:
+            if result is not None and result.id not in seen_ids:
+                seen_ids.add(result.id)
                 results.append(result)
 
         next_offset = payload.get("next")
@@ -60,7 +62,7 @@ class KlipyService:
             "locale": self.locale,
             "country": self.country,
             "contentfilter": self.content_filter,
-            "media_filter": "tinygif,nanogif,gif",
+            "media_filter": "tinymp4,mp4,nanomp4,nanogif,tinygif,gif",
             "limit": str(self.limit),
         }
         if offset:
@@ -68,7 +70,7 @@ class KlipyService:
 
         return f"{KLIPY_SEARCH_URL}?{urllib.parse.urlencode(params)}"
 
-    def _to_inline_gif(self, raw_result: object) -> InlineQueryResultGif | None:
+    def _to_inline_gif(self, raw_result: object) -> InlineQueryResultMpeg4Gif | None:
         if not isinstance(raw_result, dict):
             return None
 
@@ -77,33 +79,29 @@ class KlipyService:
         if not isinstance(result_id, str) or not isinstance(media_formats, dict):
             return None
 
-        gif = _media_format(media_formats, "tinygif") or _media_format(media_formats, "gif")
+        mpeg4 = (
+            _media_format(media_formats, "tinymp4")
+            or _media_format(media_formats, "mp4")
+            or _media_format(media_formats, "nanomp4")
+        )
         thumbnail = (
             _media_format(media_formats, "nanogif")
             or _media_format(media_formats, "tinygif")
             or _media_format(media_formats, "gif")
         )
-        if gif is None or thumbnail is None:
+        if mpeg4 is None or thumbnail is None:
             return None
 
-        title = raw_result.get("content_description")
-        if not isinstance(title, str) or not title:
-            tags = raw_result.get("tags")
-            title = ", ".join(tag for tag in tags[:3] if isinstance(tag, str)) if isinstance(tags, list) else ""
-        if not title:
-            title = "Klipy GIF"
+        width, height = _dims(mpeg4.get("dims"))
+        duration = mpeg4.get("duration")
 
-        width, height = _dims(gif.get("dims"))
-        duration = gif.get("duration")
-
-        return InlineQueryResultGif(
+        return InlineQueryResultMpeg4Gif(
             id=_telegram_inline_result_id(result_id),
-            gif_url=gif["url"],
+            mpeg4_url=mpeg4["url"],
             thumbnail_url=thumbnail["url"],
-            gif_width=width,
-            gif_height=height,
-            gif_duration=round(duration) if isinstance(duration, int | float) else None,
-            title=title,
+            mpeg4_width=width,
+            mpeg4_height=height,
+            mpeg4_duration=round(duration) if isinstance(duration, int | float) and duration > 0 else None,
         )
 
 
