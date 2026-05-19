@@ -85,9 +85,9 @@ class KlipyService:
             or _media_format(media_formats, "nanomp4")
         )
         thumbnail = (
-            _media_format(media_formats, "nanogif")
-            or _media_format(media_formats, "tinygif")
-            or _media_format(media_formats, "gif")
+            _media_format(media_formats, "nanomp4")
+            or _media_format(media_formats, "tinymp4")
+            or _media_format(media_formats, "mp4")
         )
         if mpeg4 is None or thumbnail is None:
             return None
@@ -99,6 +99,7 @@ class KlipyService:
             id=_telegram_inline_result_id(result_id),
             mpeg4_url=mpeg4["url"],
             thumbnail_url=thumbnail["url"],
+            thumbnail_mime_type="video/mp4",
             mpeg4_width=width,
             mpeg4_height=height,
             mpeg4_duration=round(duration) if isinstance(duration, int | float) and duration > 0 else None,

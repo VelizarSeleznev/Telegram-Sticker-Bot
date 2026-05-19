@@ -17,9 +17,9 @@ async def inline_klipy_search(query: InlineQuery, klipy_service: KlipyService) -
         result = await klipy_service.search_inline_gifs(query.query, offset=query.offset)
         await query.answer(
             result.results,
-            cache_time=60,
+            cache_time=0,
             is_personal=True,
-            next_offset=result.next_offset,
+            next_offset="",
         )
     except Exception:
         logger.exception("Klipy inline query failed")

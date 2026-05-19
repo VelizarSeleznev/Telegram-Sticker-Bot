@@ -18,7 +18,7 @@ def test_build_search_url_uses_klipy_endpoint_and_inline_defaults():
     assert "pos=next" in url
 
 
-def test_to_inline_gif_prefers_tinymp4_and_nanogif():
+def test_to_inline_gif_prefers_tinymp4_and_mp4_thumbnail():
     service = KlipyService(api_key="key")
 
     result = service._to_inline_gif(
@@ -31,12 +31,8 @@ def test_to_inline_gif_prefers_tinymp4_and_nanogif():
                     "dims": [220, 160],
                     "duration": 2.6,
                 },
-                "tinygif": {
-                    "url": "https://media.klipy.com/tiny.gif",
-                    "dims": [220, 160],
-                },
-                "nanogif": {
-                    "url": "https://media.klipy.com/nano.gif",
+                "nanomp4": {
+                    "url": "https://media.klipy.com/nano.mp4",
                     "dims": [90, 66],
                 },
             },
@@ -46,7 +42,8 @@ def test_to_inline_gif_prefers_tinymp4_and_nanogif():
     assert result is not None
     assert result.id == "klipy-123"
     assert result.mpeg4_url == "https://media.klipy.com/tiny.mp4"
-    assert result.thumbnail_url == "https://media.klipy.com/nano.gif"
+    assert result.thumbnail_url == "https://media.klipy.com/nano.mp4"
+    assert result.thumbnail_mime_type == "video/mp4"
     assert result.mpeg4_width == 220
     assert result.mpeg4_height == 160
     assert result.mpeg4_duration == 3
@@ -83,14 +80,14 @@ async def test_search_inline_gifs_deduplicates_klipy_result_ids(monkeypatch):
                     "id": "same",
                     "media_formats": {
                         "tinymp4": {"url": "https://media.klipy.com/1.mp4"},
-                        "nanogif": {"url": "https://media.klipy.com/1.gif"},
+                        "nanomp4": {"url": "https://media.klipy.com/1-thumb.mp4"},
                     },
                 },
                 {
                     "id": "same",
                     "media_formats": {
                         "tinymp4": {"url": "https://media.klipy.com/2.mp4"},
-                        "nanogif": {"url": "https://media.klipy.com/2.gif"},
+                        "nanomp4": {"url": "https://media.klipy.com/2-thumb.mp4"},
                     },
                 },
             ],
