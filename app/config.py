@@ -14,6 +14,11 @@ class Settings:
     max_concurrent_jobs: int
     polling_timeout: int
     emoji_catalog_path: Path
+    klipy_api_key: str
+    klipy_client_key: str
+    klipy_locale: str
+    klipy_country: str
+    klipy_content_filter: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -27,6 +32,11 @@ class Settings:
         max_concurrent_jobs = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
         polling_timeout = int(os.getenv("POLLING_TIMEOUT", "30"))
         emoji_catalog_path = Path(__file__).resolve().parent / "assets" / "emoji_catalog.json"
+        klipy_api_key = os.getenv("KLIPY_API_KEY", "").strip()
+        klipy_client_key = os.getenv("KLIPY_CLIENT_KEY", "otter_sticker_bot").strip() or "otter_sticker_bot"
+        klipy_locale = os.getenv("KLIPY_LOCALE", "ru_RU").strip() or "ru_RU"
+        klipy_country = os.getenv("KLIPY_COUNTRY", "US").strip() or "US"
+        klipy_content_filter = os.getenv("KLIPY_CONTENT_FILTER", "medium").strip() or "medium"
 
         return cls(
             bot_token=bot_token,
@@ -36,4 +46,9 @@ class Settings:
             max_concurrent_jobs=max_concurrent_jobs,
             polling_timeout=polling_timeout,
             emoji_catalog_path=emoji_catalog_path,
+            klipy_api_key=klipy_api_key,
+            klipy_client_key=klipy_client_key,
+            klipy_locale=klipy_locale,
+            klipy_country=klipy_country,
+            klipy_content_filter=klipy_content_filter,
         )

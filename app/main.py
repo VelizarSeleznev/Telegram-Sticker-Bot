@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import User
 
+from app.bot.handlers_inline import router as inline_router
 from app.bot.handlers_media import router as media_router
 from app.bot.handlers_menu import router as menu_router
 from app.bot.handlers_packs import router as packs_router
@@ -18,6 +19,7 @@ from app.config import Settings
 from app.db.repo import Database
 from app.services.collab_service import CollabService
 from app.services.emoji_service import EmojiService
+from app.services.klipy_service import KlipyService
 from app.services.media_service import MediaService
 from app.services.pack_service import PackService
 from app.services.telegram_sticker_api import TelegramStickerApi
@@ -76,9 +78,17 @@ async def run() -> None:
     collab_service = CollabService(db=db, bot_username=me.username)
     media_service = MediaService(temp_dir=settings.temp_dir)
     emoji_service = EmojiService(catalog_path=settings.emoji_catalog_path)
+    klipy_service = KlipyService(
+        api_key=settings.klipy_api_key,
+        client_key=settings.klipy_client_key,
+        locale=settings.klipy_locale,
+        country=settings.klipy_country,
+        content_filter=settings.klipy_content_filter,
+    )
     await asyncio.to_thread(emoji_service.initialize)
 
     dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(inline_router)
     dp.include_router(start_router)
     dp.include_router(menu_router)
     dp.include_router(packs_router)
@@ -97,6 +107,7 @@ async def run() -> None:
             collab_service=collab_service,
             media_service=media_service,
             emoji_service=emoji_service,
+            klipy_service=klipy_service,
             media_semaphore=media_semaphore,
         )
     finally:

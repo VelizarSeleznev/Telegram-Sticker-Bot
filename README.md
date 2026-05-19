@@ -10,6 +10,7 @@
 - черновик пака до первого стикера,
 - несколько паков + переключение активного,
 - совместное редактирование пака (owner/editor) через инвайты.
+- inline-поиск GIF через Klipy: `@otter_sticker_bot запрос`.
 
 ## Стек
 - Python 3.12
@@ -51,6 +52,11 @@
 - `LOG_LEVEL` - `INFO|DEBUG|WARN`
 - `MAX_CONCURRENT_JOBS` - число параллельных конвертаций
 - `POLLING_TIMEOUT` - timeout long polling
+- `KLIPY_API_KEY` - ключ Klipy API для inline-поиска GIF
+- `KLIPY_CLIENT_KEY` - client key для Klipy, по умолчанию `otter_sticker_bot`
+- `KLIPY_LOCALE` - локаль поиска Klipy, по умолчанию `ru_RU`
+- `KLIPY_COUNTRY` - country hint для Klipy, по умолчанию `US`
+- `KLIPY_CONTENT_FILTER` - фильтр контента Klipy, по умолчанию `medium`
 
 ## Локальный запуск без Docker
 ```bash
