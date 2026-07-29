@@ -247,7 +247,15 @@ class MediaService:
             image = image.crop((left, top, left + side, top + side))
             return image.resize((512, 512), Image.Resampling.LANCZOS)
 
-        image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        width, height = image.size
+        if width >= height:
+            target_width = 512
+            target_height = max(1, round(height * 512 / width))
+        else:
+            target_height = 512
+            target_width = max(1, round(width * 512 / height))
+        if image.size != (target_width, target_height):
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
         canvas = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
         offset_x = (512 - image.width) // 2
         offset_y = (512 - image.height) // 2
