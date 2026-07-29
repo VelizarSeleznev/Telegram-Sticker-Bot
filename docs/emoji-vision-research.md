@@ -8,6 +8,10 @@ jobs 901 and 902. The benchmark tool is
 ai-keys run -- python3 scripts/benchmark_emoji_vision.py image-1.webp image-2.webp
 ```
 
+Override the Gemini model, thinking level, or output ceiling with
+`GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`, and
+`GEMINI_MAX_OUTPUT_TOKENS`.
+
 The prompt asks each model to OCR the meme, infer its meaning and reaction, and
 return exactly three distinct Unicode emoji in JSON.
 
@@ -21,12 +25,30 @@ return exactly three distinct Unicode emoji in JSON.
 | Gemini 3.6 Flash | 5.24 s | 16.03 s | Correct OCR, slower and no quality advantage for this classifier |
 | GPT-5.6 Luna | 2.86 s | 5.63 s | First image correct; second OCR correct but visual interpretation drifted |
 | OpenRouter free router | 9.88 s | 5.24 s | Correct with Gemma 4 26B, but routing and latency are not deterministic |
-| Groq Qwen 3.6 27B | blocked | blocked | Existing Groq project key lists the model but receives HTTP 403 for inference |
+| Groq Qwen 3.6 27B | blocked | blocked | Both the existing and a newly issued Groq key list the model but receive HTTP 403; model permissions must be changed at the organization/project level |
 | Cerebras public free API | unavailable | unavailable | Current public/free catalog is text-only; multimodal models are dedicated/coming soon |
 
 These are end-to-end wall-clock measurements from Copenhagen on the current
 free/test credentials, not provider token-generation claims. Exact provider
 capacity and free-project queues can change.
+
+## Gemini 3.1 reasoning levels
+
+Retested the same two inputs with a 1,024-token output ceiling so hidden
+thinking did not truncate the small JSON response:
+
+| Thinking level | Job 901 | Job 902 | Quality change |
+| --- | ---: | ---: | --- |
+| `minimal` | 0.98 s | 0.87 s | Correct OCR and intent; best emoji set |
+| `low` | 1.33 s | 1.29 s | Correct, no useful improvement |
+| `medium` | 1.77 s | 1.71 s | Correct, no useful improvement |
+| `high` | 2.38 s | 2.72 s | Correct, no useful improvement |
+
+With the original 160-token ceiling, `low`, `medium`, and `high` consumed the
+available output budget in hidden thinking and returned truncated or empty JSON.
+For this classification task, keep `minimal` and the small ceiling. Raising
+reasoning is only worth a separate fallback experiment on genuinely ambiguous
+visual jokes.
 
 ## Recommendation
 

@@ -98,6 +98,8 @@ def gemini(path: Path) -> tuple[str, dict[str, Any], float]:
     if not key:
         raise ProviderError("GEMINI_API_KEY is missing")
     model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    thinking_level = os.environ.get("GEMINI_THINKING_LEVEL", "minimal")
+    max_output_tokens = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "160"))
     mime = mimetypes.guess_type(path.name)[0] or "image/webp"
     payload = {
         "contents": [{
@@ -107,10 +109,10 @@ def gemini(path: Path) -> tuple[str, dict[str, Any], float]:
             ]
         }],
         "generationConfig": {
-            "maxOutputTokens": 160,
+            "maxOutputTokens": max_output_tokens,
             "responseMimeType": "application/json",
             "responseJsonSchema": SCHEMA,
-            "thinkingConfig": {"thinkingLevel": "minimal"},
+            "thinkingConfig": {"thinkingLevel": thinking_level},
         },
     }
     response, latency = post_json(
