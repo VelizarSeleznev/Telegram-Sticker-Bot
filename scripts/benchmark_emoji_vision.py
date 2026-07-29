@@ -88,10 +88,17 @@ def post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> tup
 def parse_result(text: str) -> dict[str, Any]:
     result = json.loads(text)
     emojis = result.get("emojis")
-    if not isinstance(emojis, list) or len(emojis) != 3 or len(set(emojis)) != 3:
+    if not isinstance(emojis, list):
+        raise ProviderError("response did not contain three distinct emoji")
+    normalized = [str(value).strip() for value in emojis]
+    if (
+        len(normalized) != 3
+        or any(not value for value in normalized)
+        or len(set(normalized)) != 3
+    ):
         raise ProviderError("response did not contain three distinct emoji")
     return {
-        "emojis": [str(value) for value in emojis],
+        "emojis": normalized,
         "meaning": str(result.get("meaning", "")),
         "ocr": str(result.get("ocr", "")),
     }
@@ -187,12 +194,18 @@ def groq(path: Path) -> tuple[str, dict[str, Any], float]:
 def openrouter(path: Path) -> tuple[str, dict[str, Any], float]:
     model = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
     max_output_tokens = int(os.environ.get("OPENROUTER_MAX_OUTPUT_TOKENS", "160"))
+    reasoning_enabled = os.environ.get("OPENROUTER_REASONING_ENABLED")
+    extra: dict[str, Any] = {"max_completion_tokens": max_output_tokens}
+    if reasoning_enabled is not None:
+        extra["reasoning"] = {
+            "enabled": reasoning_enabled.strip().lower() in {"1", "true", "yes", "on"}
+        }
     return openai_compatible(
         path=path,
         key_name="OPENROUTER_API_KEY",
         url="https://openrouter.ai/api/v1/chat/completions",
         model=model,
-        extra={"max_completion_tokens": max_output_tokens},
+        extra=extra,
     )
 
 

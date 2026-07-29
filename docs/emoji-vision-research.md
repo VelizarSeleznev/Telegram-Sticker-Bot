@@ -13,7 +13,9 @@ Override the Gemini model, thinking level, or output ceiling with
 `GEMINI_MAX_OUTPUT_TOKENS`. Select a fixed OpenRouter model with
 `OPENROUTER_MODEL`. Groq reasoning and output size are controlled by
 `GROQ_REASONING_EFFORT` and `GROQ_MAX_OUTPUT_TOKENS`. OpenAI and Anthropic
-model IDs can be changed with `OPENAI_MODEL` and `ANTHROPIC_MODEL`.
+model IDs can be changed with `OPENAI_MODEL` and `ANTHROPIC_MODEL`. For
+OpenRouter reasoning-capable models, set `OPENROUTER_REASONING_ENABLED=true` or
+`false` explicitly rather than relying on the provider default.
 
 The prompt asks each model to OCR the meme, infer its meaning and reaction, and
 return exactly three distinct Unicode emoji in JSON.
@@ -134,3 +136,44 @@ Gemini's free tier may use submitted data to improve Google products. That is
 acceptable only if the two bot users understand that sticker images leave the
 server. A paid tier has different data-use terms and should be considered if
 private stickers become a real use case.
+
+## Ten-meme model arena
+
+A wider manual benchmark was run on 2026-07-29 after the two-image gate proved
+too easy. The set contains eight static/video memes from the same user's
+`Мимчики` pack plus production jobs 901 and 902 from `Peek мимчики`. Video
+stickers were sent as one three-frame contact sheet. Each answer received 0-2
+points independently for literal OCR, meme meaning, and useful emoji, for a
+maximum of 60 points across ten stickers.
+
+| Finalist | Score | Median | Measured test cost | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Gemini 3.1 Flash-Lite | 57/60 | 1.27 s | free-tier key | Usable candidates and no structural failures on all ten |
+| Gemma 4 26B | 52/60 | 3.58 s | free-tier key | Strong meaning; occasionally tags the pictured subject instead of the reaction |
+| Xiaomi MiMo V2.5 | 42/60 | 4.29 s | $0.00279 | Creative emoji, unstable Russian OCR and meaning |
+| GLM-4.5V | 40/60 | 3.22 s | $0.00296 | Often reads text but can still misunderstand the reaction |
+| Qwen 3.7 Flash | 37/60 | 4.63 s | $0.00030 | Extremely cheap, but its successful two-image gate did not reproduce |
+
+OpenRouter prices were discovered from the live Models API and the table uses
+the `usage.cost` actually returned for this run. Failed candidates were stopped
+after the hard `ЗАКРОЙ ЕБАЛЬНИК` gate. Examples include `закрой печку`
+(Qwen 3.5 Flash), `закрыть trapdoor` (Seed 1.6 Flash), `закрой балконник`
+(Mistral Small 3.2), and `закрой глаза` (Step 3.7 Flash).
+
+The interactive local report lives at:
+
+```text
+/Users/velizard/.codex/visualizations/2026/07/29/019facf1-fd22-76d2-8223-00c738832f71/emoji-arena/index.html
+```
+
+Serve that directory over localhost so browsers can load all media:
+
+```bash
+cd /Users/velizard/.codex/visualizations/2026/07/29/019facf1-fd22-76d2-8223-00c738832f71/emoji-arena
+python3 -m http.server 8765 --bind 127.0.0.1
+```
+
+The page records the raw model emoji, OCR, meaning, latency, measured
+OpenRouter cost, manual subscores, current pack emoji, and a human target. It
+also exposes an important validation regression found during the run: blank or
+whitespace-only model values must never count as emoji.
