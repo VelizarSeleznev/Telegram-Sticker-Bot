@@ -84,38 +84,30 @@ visual jokes.
 
 ## Recommendation
 
-Use `gemini-3.1-flash-lite` with `thinkingLevel=minimal` as the first production
-vision provider. It was the fastest model that correctly understood both real
-failure cases. Groq Qwen 3.6 is about 0.4 seconds faster, but that saving is not
-worth silently attaching the wrong emoji to Russian text memes. Extra Groq
-reasoning made the hard case four times slower without fixing it.
+Production uses Google-direct `gemma-4-26b-a4b-it` for every automatic emoji
+suggestion. The aggregate manual rubric put Gemini 3.1 Flash-Lite slightly
+higher, but the bot owner preferred Gemma 4's qualitative meme interpretation
+and explicitly chose that over lower latency. A live post-selection smoke on
+`О ГОРЕ` returned `😭 😔 😿`, correct OCR and meaning in 2.80 seconds.
 
-If a sub-second speculative preview is useful, Groq can populate temporary
-choices first and Gemini can replace them when its result arrives. It must not
-be treated as a quality fallback, and 429 responses should fall through to
-Gemini immediately. With only two bot users, the simpler and more reliable
-choice is to call Gemini directly and keep the interaction cancellable.
-
-Do not keep the current CLIP result as the automatic choice. CLIP cannot OCR the
-caption or infer a meme's intent, so it should only supply an instant placeholder
-when the network model misses its deadline.
+CLIP, Groq, Gemini Flash, and OpenRouter are not production fallbacks. If Gemma
+is unavailable, times out, or returns anything except three distinct Unicode
+emoji, the bot presents neutral local choices. This keeps a provider failure
+visible instead of silently substituting a weaker classifier.
 
 ## Interaction design
 
-1. Finish media conversion and persist the job.
-2. Send the emoji-choice message immediately. Show original emoji when
-   available, a neutral fallback otherwise, "Свой эмодзи", and
-   "Не ждать AI".
-3. Start one cancellable Gemini request concurrently with a 2.0-2.5 second
-   deadline.
-4. If it returns while the job is still waiting, atomically persist the three
-   suggestions and edit the existing Telegram message and keyboard.
-5. If the user chooses first, cancel/discard the provider result. Never delay
-   sticker creation for a provider retry.
-6. Cache successful results by
-   `sha256(image) + provider + model + prompt_version`. For video, send one
-   contact sheet made from representative frames so a single request sees the
-   action and any captions.
+1. Finish media conversion.
+2. Call Gemma 4 once in the existing worker thread, with a 30-second ceiling
+   and no provider retry.
+3. For images, send the processed 512px preview. For video, build one
+   three-frame contact sheet from the original input so captions and motion are
+   visible in one request, including experimental six-second videos.
+4. Validate exactly three distinct emoji and persist only those suggestions.
+5. Show the three candidates, the Gemma auto-pick, original emoji when
+   available, and the manual custom-emoji path.
+6. On any provider or validation failure, persist neutral local choices and
+   label them as a no-AI reserve.
 
 The provider contract should return:
 
@@ -129,8 +121,7 @@ The provider contract should return:
 
 Validate that there are exactly three distinct standard Unicode emoji before
 updating the job. Do not write images, OCR text, prompts, API keys, or provider
-responses to production logs. Record only provider, model, prompt version,
-success/failure class, cache hit, cancellation, and latency.
+responses to production logs. Record only the provider model and failure class.
 
 Gemini's free tier may use submitted data to improve Google products. That is
 acceptable only if the two bot users understand that sticker images leave the

@@ -13,7 +13,10 @@ class Settings:
     log_level: str
     max_concurrent_jobs: int
     polling_timeout: int
-    emoji_catalog_path: Path
+    gemini_api_key: str
+    emoji_vision_model: str
+    emoji_vision_timeout_seconds: float
+    emoji_vision_max_output_tokens: int
     klipy_api_key: str
     klipy_client_key: str
     klipy_locale: str
@@ -31,7 +34,12 @@ class Settings:
         log_level = os.getenv("LOG_LEVEL", "INFO").upper().strip() or "INFO"
         max_concurrent_jobs = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
         polling_timeout = int(os.getenv("POLLING_TIMEOUT", "30"))
-        emoji_catalog_path = Path(__file__).resolve().parent / "assets" / "emoji_catalog.json"
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required")
+        emoji_vision_model = os.getenv("EMOJI_VISION_MODEL", "gemma-4-26b-a4b-it").strip()
+        emoji_vision_timeout_seconds = float(os.getenv("EMOJI_VISION_TIMEOUT_SECONDS", "30"))
+        emoji_vision_max_output_tokens = int(os.getenv("EMOJI_VISION_MAX_OUTPUT_TOKENS", "192"))
         klipy_api_key = os.getenv("KLIPY_API_KEY", "").strip()
         klipy_client_key = os.getenv("KLIPY_CLIENT_KEY", "otter_sticker_bot").strip() or "otter_sticker_bot"
         klipy_locale = os.getenv("KLIPY_LOCALE", "ru_RU").strip() or "ru_RU"
@@ -45,7 +53,10 @@ class Settings:
             log_level=log_level,
             max_concurrent_jobs=max_concurrent_jobs,
             polling_timeout=polling_timeout,
-            emoji_catalog_path=emoji_catalog_path,
+            gemini_api_key=gemini_api_key,
+            emoji_vision_model=emoji_vision_model,
+            emoji_vision_timeout_seconds=emoji_vision_timeout_seconds,
+            emoji_vision_max_output_tokens=emoji_vision_max_output_tokens,
             klipy_api_key=klipy_api_key,
             klipy_client_key=klipy_client_key,
             klipy_locale=klipy_locale,

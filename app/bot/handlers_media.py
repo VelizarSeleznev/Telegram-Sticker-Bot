@@ -137,7 +137,7 @@ async def handle_media_upload(
         return
 
     if incoming.source_is_sticker:
-        await message.answer("Анализирую стикер и подбираю эмодзи...")
+        await message.answer("Анализирую стикер через Gemma 4 и подбираю эмодзи...")
         try:
             async with media_semaphore:
                 processed = await asyncio.to_thread(
@@ -151,7 +151,7 @@ async def handle_media_upload(
                 emoji_service.suggest,
                 processed.preview_path,
                 incoming.media_kind,
-                processed.path if incoming.media_kind == MediaKind.VIDEO else None,
+                input_path if incoming.media_kind == MediaKind.VIDEO else None,
             )
 
             await db.update_media_job_processing(
@@ -167,7 +167,7 @@ async def handle_media_upload(
                 title="Выберите эмодзи для добавляемого стикера:",
                 top=top,
                 auto_pick=suggestion.auto_pick,
-                confidence=suggestion.confidence,
+                from_gemma=suggestion.confidence > 0,
             )
             if incoming.original_emoji:
                 text += f"\nИсходный эмодзи: {incoming.original_emoji}"
@@ -182,7 +182,7 @@ async def handle_media_upload(
             await message.answer(f"Ошибка обработки стикера: {exc}")
         return
 
-    await message.answer("Конвертирую медиа без обрезки, это может занять до минуты...")
+    await message.answer("Конвертирую медиа и жду эмодзи от Gemma 4. Это может занять до минуты...")
     try:
         async with media_semaphore:
             if incoming.media_kind == MediaKind.IMAGE:
@@ -206,7 +206,7 @@ async def handle_media_upload(
             emoji_service.suggest,
             processed.preview_path,
             incoming.media_kind,
-            processed.path if incoming.media_kind == MediaKind.VIDEO else None,
+            input_path if incoming.media_kind == MediaKind.VIDEO else None,
         )
 
         await db.update_media_job_processing(
@@ -224,7 +224,7 @@ async def handle_media_upload(
                 title="Готово. Выберите эмодзи для стикера:",
                 top=top,
                 auto_pick=suggestion.auto_pick,
-                confidence=suggestion.confidence,
+                from_gemma=suggestion.confidence > 0,
             ),
             reply_markup=emoji_keyboard(job.id, top, with_original=bool(job.original_emoji), crop_mode=CropMode.FIT),
         )
@@ -358,7 +358,7 @@ async def cb_sticker_action(
             emoji_service.suggest,
             processed.preview_path,
             media_kind,
-            processed.path if media_kind == MediaKind.VIDEO else None,
+            input_path if media_kind == MediaKind.VIDEO else None,
         )
 
         await db.update_media_job_processing(
@@ -376,7 +376,7 @@ async def cb_sticker_action(
             title="Выберите эмодзи для добавляемого стикера:",
             top=top,
             auto_pick=suggestion.auto_pick,
-            confidence=suggestion.confidence,
+            from_gemma=suggestion.confidence > 0,
         )
         if action.original_emoji:
             text += f"\nИсходный эмодзи: {action.original_emoji}"
@@ -427,7 +427,7 @@ async def cb_crop_choice(
 
     await callback.answer("Обрабатываю...")
     if callback.message:
-        await callback.message.edit_text("Конвертирую медиа, это может занять до минуты...")
+        await callback.message.edit_text("Конвертирую медиа и жду эмодзи от Gemma 4. Это может занять до минуты...")
 
     try:
         async with media_semaphore:
@@ -447,7 +447,7 @@ async def cb_crop_choice(
             emoji_service.suggest,
             processed.preview_path,
             job.media_kind,
-            processed.path if job.media_kind == MediaKind.VIDEO else None,
+            input_path if job.media_kind == MediaKind.VIDEO else None,
         )
 
         await db.update_media_job_processing(
@@ -463,7 +463,7 @@ async def cb_crop_choice(
             title="Готово. Выберите эмодзи для стикера:",
             top=top,
             auto_pick=suggestion.auto_pick,
-            confidence=suggestion.confidence,
+            from_gemma=suggestion.confidence > 0,
         )
 
         if callback.message:
@@ -623,13 +623,14 @@ async def _set_direct_emoji_state(state: FSMContext, job_id: int) -> None:
     await state.update_data(custom_emoji_job_id=job_id)
 
 
-def _emoji_choice_text(*, title: str, top: list[str], auto_pick: str, confidence: float) -> str:
+def _emoji_choice_text(*, title: str, top: list[str], auto_pick: str, from_gemma: bool) -> str:
+    auto_label = "Gemma 4" if from_gemma else "резерв без AI"
     return (
         f"{title}\n"
         f"1) {top[0]}\n"
         f"2) {top[1]}\n"
         f"3) {top[2]}\n"
-        f"Авто: {auto_pick} (confidence={confidence:.2f})\n\n"
+        f"Авто ({auto_label}): {auto_pick}\n\n"
         "Можно просто отправить нужный эмодзи сообщением."
     )
 

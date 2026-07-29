@@ -77,7 +77,12 @@ async def run() -> None:
     pack_service = PackService(db=db, tg_api=tg_api, bot_username=me.username)
     collab_service = CollabService(db=db, bot_username=me.username)
     media_service = MediaService(temp_dir=settings.temp_dir)
-    emoji_service = EmojiService(catalog_path=settings.emoji_catalog_path)
+    emoji_service = EmojiService(
+        api_key=settings.gemini_api_key,
+        model=settings.emoji_vision_model,
+        timeout_seconds=settings.emoji_vision_timeout_seconds,
+        max_output_tokens=settings.emoji_vision_max_output_tokens,
+    )
     klipy_service = KlipyService(
         api_key=settings.klipy_api_key,
         client_key=settings.klipy_client_key,
@@ -85,8 +90,6 @@ async def run() -> None:
         country=settings.klipy_country,
         content_filter=settings.klipy_content_filter,
     )
-    await asyncio.to_thread(emoji_service.initialize)
-
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(inline_router)
     dp.include_router(start_router)
