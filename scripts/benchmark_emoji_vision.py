@@ -57,7 +57,11 @@ def post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> tup
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", **headers},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "otter-sticker-bot-emoji-benchmark/1",
+            **headers,
+        },
         method="POST",
     )
     started = time.perf_counter()
@@ -101,6 +105,20 @@ def gemini(path: Path) -> tuple[str, dict[str, Any], float]:
     thinking_level = os.environ.get("GEMINI_THINKING_LEVEL", "minimal")
     max_output_tokens = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "160"))
     mime = mimetypes.guess_type(path.name)[0] or "image/webp"
+    thinking_config: dict[str, Any] | None
+    if model.startswith("gemini-2.5"):
+        thinking_config = {"thinkingBudget": 0}
+    elif model.startswith("gemma-"):
+        thinking_config = None
+    else:
+        thinking_config = {"thinkingLevel": thinking_level}
+    generation_config: dict[str, Any] = {
+        "maxOutputTokens": max_output_tokens,
+        "responseMimeType": "application/json",
+        "responseJsonSchema": SCHEMA,
+    }
+    if thinking_config is not None:
+        generation_config["thinkingConfig"] = thinking_config
     payload = {
         "contents": [{
             "parts": [
@@ -108,12 +126,7 @@ def gemini(path: Path) -> tuple[str, dict[str, Any], float]:
                 {"inlineData": {"mimeType": mime, "data": base64.b64encode(path.read_bytes()).decode("ascii")}},
             ]
         }],
-        "generationConfig": {
-            "maxOutputTokens": max_output_tokens,
-            "responseMimeType": "application/json",
-            "responseJsonSchema": SCHEMA,
-            "thinkingConfig": {"thinkingLevel": thinking_level},
-        },
+        "generationConfig": generation_config,
     }
     response, latency = post_json(
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -157,21 +170,29 @@ def openai_compatible(
 
 
 def groq(path: Path) -> tuple[str, dict[str, Any], float]:
+    reasoning_effort = os.environ.get("GROQ_REASONING_EFFORT", "none")
+    max_output_tokens = int(os.environ.get("GROQ_MAX_OUTPUT_TOKENS", "160"))
     return openai_compatible(
         path=path,
         key_name="GROQ_API_KEY",
         url="https://api.groq.com/openai/v1/chat/completions",
         model="qwen/qwen3.6-27b",
-        extra={"reasoning_effort": "none"},
+        extra={
+            "reasoning_effort": reasoning_effort,
+            "max_completion_tokens": max_output_tokens,
+        },
     )
 
 
 def openrouter(path: Path) -> tuple[str, dict[str, Any], float]:
+    model = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+    max_output_tokens = int(os.environ.get("OPENROUTER_MAX_OUTPUT_TOKENS", "160"))
     return openai_compatible(
         path=path,
         key_name="OPENROUTER_API_KEY",
         url="https://openrouter.ai/api/v1/chat/completions",
-        model="openrouter/free",
+        model=model,
+        extra={"max_completion_tokens": max_output_tokens},
     )
 
 
@@ -179,10 +200,11 @@ def openai(path: Path) -> tuple[str, dict[str, Any], float]:
     key = os.environ.get("OPENAI_API_KEY", "")
     if not key:
         raise ProviderError("OPENAI_API_KEY is missing")
+    model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
     payload = {
-        "model": "gpt-5.6-luna",
+        "model": model,
         "reasoning": {"effort": "none"},
-        "max_output_tokens": 160,
+        "max_output_tokens": int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "160")),
         "input": [{
             "role": "user",
             "content": [
@@ -209,7 +231,56 @@ def openai(path: Path) -> tuple[str, dict[str, Any], float]:
         for content in item.get("content", []):
             if content.get("type") == "output_text":
                 text += content.get("text", "")
-    return str(response.get("model") or "gpt-5.6-luna"), parse_result(text), latency
+    return str(response.get("model") or model), parse_result(text), latency
+
+
+def anthropic(path: Path) -> tuple[str, dict[str, Any], float]:
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise ProviderError("ANTHROPIC_API_KEY is missing")
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    mime = mimetypes.guess_type(path.name)[0] or "image/webp"
+    anthropic_schema = json.loads(json.dumps(SCHEMA))
+    anthropic_schema["properties"]["emojis"].pop("minItems")
+    anthropic_schema["properties"]["emojis"].pop("maxItems")
+    payload = {
+        "model": model,
+        "max_tokens": int(os.environ.get("ANTHROPIC_MAX_OUTPUT_TOKENS", "160")),
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+                    },
+                },
+                {"type": "text", "text": PROMPT},
+            ],
+        }],
+        "output_config": {
+            "format": {
+                "type": "json_schema",
+                "schema": anthropic_schema,
+            }
+        },
+    }
+    response, latency = post_json(
+        "https://api.anthropic.com/v1/messages",
+        {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+        },
+        payload,
+    )
+    text = "".join(
+        block.get("text", "")
+        for block in response.get("content", [])
+        if block.get("type") == "text"
+    )
+    return str(response.get("model") or model), parse_result(text), latency
 
 
 PROVIDERS: dict[str, Callable[[Path], tuple[str, dict[str, Any], float]]] = {
@@ -217,6 +288,7 @@ PROVIDERS: dict[str, Callable[[Path], tuple[str, dict[str, Any], float]]] = {
     "groq": groq,
     "openai": openai,
     "openrouter": openrouter,
+    "anthropic": anthropic,
 }
 
 
