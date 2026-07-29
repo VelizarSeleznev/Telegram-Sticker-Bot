@@ -20,6 +20,9 @@
 - Pillow + pillow-heif
 - CLIP (transformers + torch) для авто-эмодзи
 
+Исследование замены CLIP на быстрое vision-распознавание и воспроизводимый
+benchmark: [`docs/emoji-vision-research.md`](docs/emoji-vision-research.md).
+
 ## Команды
 - `/start`
 - `/newpack`
