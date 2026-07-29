@@ -83,6 +83,7 @@ async def cmd_start(
         "/invite @username - пригласить редактора в активный пак\n"
         "/members - участники активного пака\n"
         "/kick [member_id] - удалить участника (только owner)\n"
+        "/video6 [on|off] - experimental видео до 6 секунд\n"
         "/help - помощь\n"
         "Отправьте медиа, и я предложу обрезку и эмодзи.",
         reply_markup=main_menu_keyboard(),
@@ -94,6 +95,39 @@ async def cmd_help(message: Message, settings: Settings) -> None:
     if not await ensure_allowed_event(message, settings):
         return
     await message.answer(build_help_text(), reply_markup=main_menu_keyboard())
+
+
+@router.message(Command("video6"))
+async def cmd_video6(message: Message, settings: Settings, db: Database) -> None:
+    if not await ensure_allowed_event(message, settings):
+        return
+
+    user_id = await db.ensure_user(message.from_user.id, message.from_user.username)
+    parts = (message.text or "").split(maxsplit=1)
+    argument = parts[1].strip().lower() if len(parts) == 2 else ""
+
+    if argument in {"on", "вкл", "enable"}:
+        await db.set_video_duration_seconds(user_id, 6)
+        await message.answer(
+            "Experimental 6 секунд включены для следующих видео.\n"
+            "Бот подменяет Duration в WebM; Telegram официально поддерживает только 3 секунды, "
+            "поэтому этот режим может перестать работать без предупреждения.\n"
+            "Вернуть надежный режим: /video6 off"
+        )
+        return
+
+    if argument in {"off", "выкл", "disable"}:
+        await db.set_video_duration_seconds(user_id, 3)
+        await message.answer("Стандартные 3 секунды включены для следующих видео.")
+        return
+
+    seconds = await db.get_video_duration_seconds(user_id)
+    status = "включены" if seconds == 6 else "выключены"
+    await message.answer(
+        f"Experimental 6 секунд сейчас {status}.\n"
+        "Включить один раз: /video6 on\n"
+        "Вернуть стандартные 3 секунды: /video6 off"
+    )
 
 
 @router.message(Command("cancel"))
