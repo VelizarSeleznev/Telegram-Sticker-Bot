@@ -38,6 +38,7 @@ def test_process_existing_static_sticker_normalizes_small_canvas(tmp_path):
         assert sticker.size == (512, 512)
     with Image.open(out.preview_path) as preview:
         assert preview.size == (512, 512)
+        assert preview.getchannel("A").getbbox() == (0, 0, 512, 512)
 
 
 def test_video_sticker_validation_rejects_non_telegram_dimensions():
