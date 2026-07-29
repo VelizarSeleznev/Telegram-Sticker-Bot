@@ -32,8 +32,9 @@ def test_emoji_keyboard_keeps_crop_choice_on_emoji_step():
 
 
 def test_emoji_choice_text_mentions_plain_emoji_message():
-    text = _emoji_choice_text(title="Готово.", top=["😀", "🔥", "✨"], auto_pick="😀", confidence=0.75)
+    text = _emoji_choice_text(title="Готово.", top=["😀", "🔥", "✨"], auto_pick="😀", from_gemma=True)
 
+    assert "Авто (Gemma 4): 😀" in text
     assert "Можно просто отправить нужный эмодзи сообщением." in text
 
 
