@@ -114,3 +114,21 @@ async def test_get_tg_user_id_by_user_id(tmp_path):
     assert await db.get_tg_user_id_by_user_id(999999) is None
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_experimental_video_duration_setting_persists(tmp_path):
+    db = Database(tmp_path / "test.db")
+    await db.connect()
+    await db.initialize()
+
+    user_id = await db.ensure_user(654321)
+    assert await db.get_video_duration_seconds(user_id) == 3
+
+    await db.set_video_duration_seconds(user_id, 6)
+    assert await db.get_video_duration_seconds(user_id) == 6
+
+    await db.set_video_duration_seconds(user_id, 3)
+    assert await db.get_video_duration_seconds(user_id) == 3
+
+    await db.close()

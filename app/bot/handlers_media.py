@@ -182,7 +182,7 @@ async def handle_media_upload(
             await message.answer(f"Ошибка обработки стикера: {exc}")
         return
 
-    await message.answer("Конвертирую медиа без обрезки, это может занять до 20 секунд...")
+    await message.answer("Конвертирую медиа без обрезки, это может занять до минуты...")
     try:
         async with media_semaphore:
             if incoming.media_kind == MediaKind.IMAGE:
@@ -193,11 +193,13 @@ async def handle_media_upload(
                     CropMode.FIT,
                 )
             else:
+                video_duration_seconds = await db.get_video_duration_seconds(user_id)
                 processed = await asyncio.to_thread(
                     media_service.process_video,
                     input_path,
                     input_path.parent,
                     CropMode.FIT,
+                    video_duration_seconds,
                 )
 
         suggestion = await asyncio.to_thread(
@@ -425,14 +427,21 @@ async def cb_crop_choice(
 
     await callback.answer("Обрабатываю...")
     if callback.message:
-        await callback.message.edit_text("Конвертирую медиа, это может занять до 20 секунд...")
+        await callback.message.edit_text("Конвертирую медиа, это может занять до минуты...")
 
     try:
         async with media_semaphore:
             if job.media_kind == MediaKind.IMAGE:
                 processed = await asyncio.to_thread(media_service.process_image, input_path, input_path.parent, crop_mode)
             else:
-                processed = await asyncio.to_thread(media_service.process_video, input_path, input_path.parent, crop_mode)
+                video_duration_seconds = await db.get_video_duration_seconds(user_id)
+                processed = await asyncio.to_thread(
+                    media_service.process_video,
+                    input_path,
+                    input_path.parent,
+                    crop_mode,
+                    video_duration_seconds,
+                )
 
         suggestion = await asyncio.to_thread(
             emoji_service.suggest,

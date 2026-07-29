@@ -129,6 +129,26 @@ class Database:
         row = await self._fetchone("SELECT tg_user_id FROM users WHERE id = ? LIMIT 1", (user_id,))
         return int(row["tg_user_id"]) if row else None
 
+    async def get_video_duration_seconds(self, user_id: int) -> int:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        row = await self._fetchone(
+            "SELECT video_duration_seconds FROM users WHERE id = ? LIMIT 1",
+            (user_id,),
+        )
+        return int(row["video_duration_seconds"]) if row else 3
+
+    async def set_video_duration_seconds(self, user_id: int, seconds: int) -> None:
+        if not self.conn:
+            raise RuntimeError("DB is not connected")
+        if seconds not in {3, 6}:
+            raise ValueError("Video duration must be 3 or 6 seconds")
+        await self.conn.execute(
+            "UPDATE users SET video_duration_seconds = ? WHERE id = ?",
+            (seconds, user_id),
+        )
+        await self.conn.commit()
+
     async def create_draft_pack(self, user_id: int, title: str, short_name: str) -> Pack:
         if not self.conn:
             raise RuntimeError("DB is not connected")
