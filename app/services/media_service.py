@@ -116,8 +116,9 @@ class MediaService:
             preview_path = job_dir / "preview.png"
             with Image.open(input_path) as source:
                 image = source.convert("RGBA")
-                self._save_webp_with_limit(image, output_path)
-                image.save(preview_path, format="PNG", optimize=True)
+                result = self._to_sticker_canvas(image=image, mode=CropMode.FIT)
+                self._save_webp_with_limit(result, output_path)
+                result.save(preview_path, format="PNG", optimize=True)
             return ProcessedSticker(path=output_path, preview_path=preview_path, media_kind=MediaKind.IMAGE)
 
         self._require_ffmpeg()
